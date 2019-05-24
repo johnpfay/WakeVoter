@@ -1,0 +1,1 @@
+%localappdata%\ESRI\conda\envs\os_gis\scripts\spyder.exe -w %cd%\.. -p %cd%\..

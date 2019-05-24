@@ -1,0 +1,1 @@
+%localappdata%\ESRI\conda\envs\biogas\scripts\jupyter-notebook.exe --notebook-dir=%cd%
