@@ -1,2 +1,6 @@
 .ipynb_checkpoints/*
 data/*.csv
+data/locators/*
+data/spatial/*
+data/NCSBE/*Statewide.*
+data/NCSBE/*.csv
