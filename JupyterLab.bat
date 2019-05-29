@@ -1,1 +1,1 @@
-%localappdata%\ESRI\conda\envs\biogas\scripts\jupyter-lab.exe --notebook-dir=%cd%
+%localappdata%\ESRI\conda\envs\votesquad\scripts\jupyter-lab.exe --notebook-dir=%cd%
