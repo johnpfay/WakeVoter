@@ -42,3 +42,18 @@ Analysis of NC census and elections data to identify areas of low minority voter
     * P1: Race
     * P10: Race for population 18 and over
 
+Address points
+
+* https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/list.html
+* https://dl.ncsbe.gov/index.html?prefix=ShapeFiles/
+* https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip
+
+## Scripts
+
+* `Extract-WakeCo-Blocks-To-File.ipynb` 
+  * Queries the online NC statewide block data feature class to extract just blocks in Wake County (FIPS 183). Output is places in the `data/spatial` folder as `tabblock2010_37183_pophu.shp`.
+
+* `IsolateBlocks.ipynb`
+  * Reads in the county census block features (created above) and Census attributes (retrieved from AFF query). The identifies the blocks with > 50% black tenure and extracts those block features meeting that criteria, saving them to the `data/spatial` folder as `tabblock2010_37183_BlackGT50Pct.shp`
+  * 
+
