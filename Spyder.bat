@@ -1,1 +1,1 @@
-%localappdata%\ESRI\conda\envs\votesquad\scripts\spyder.exe -w %cd%\.. -p %cd%\..
+%localappdata%\ESRI\conda\envs\votesquad\scripts\spyder.exe -w %cd% -p %cd%
