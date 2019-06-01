@@ -7,7 +7,7 @@ Analysis of NC census and elections data to identify areas of low minority voter
 ## Environment
 
 * Python 3.6.6
-* Jupyter | Geopandas | [GeoPy](https://github.com/geopy/geopy) | [ipyLeaflet](https://github.com/jupyter-widgets/ipyleaflet) | [Dask](https://dask.org/) | requests
+* Jupyter | Geopandas | [GeoPy](https://github.com/geopy/geopy) | [ipyLeaflet](https://github.com/jupyter-widgets/ipyleaflet) | [Dask](https://dask.org/) | requests | spyder
 
 
 
@@ -48,6 +48,32 @@ Address points
 * https://dl.ncsbe.gov/index.html?prefix=ShapeFiles/
 * https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip
 
+---
+
+## Workflows
+
+### 1. Identify census block groups with > 50% black voters
+
+* Obtain block feature dataset and attribute dataset, subset for Wake Co.
+* Join attributes to features and isolate block features with > 50 black voters
+* Tag block features with voting precincts
+
+### 2. Compute voting frequency data and geocode it
+
+* Extract voting registration and history data for Wake Co. 
+* Geocode voter registration data
+* Tally the number of elections voted in for each voter registration & join to geocode data
+
+### 3. Select voting data falling within selected census blocks
+
+* Spatially join voting registration data with census blocks & precinct information
+* Compile list of super voters within each block (voters in all elections)
+* Compile list of slacker voters within each block
+* Identify contiguous blocks, within precincts, and tally slacker voters 
+* Assign super voters for each 100 slacker voters in contiguous blocks.
+
+---
+
 ## Scripts
 
 * `Extract-WakeCo-Blocks-To-File.ipynb` 
@@ -55,5 +81,5 @@ Address points
 
 * `IsolateBlocks.ipynb`
   * Reads in the county census block features (created above) and Census attributes (retrieved from AFF query). The identifies the blocks with > 50% black tenure and extracts those block features meeting that criteria, saving them to the `data/spatial` folder as `tabblock2010_37183_BlackGT50Pct.shp`
-  * 
+* `Geocode-NCSBE-Data.ipynb` 
 
