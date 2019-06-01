@@ -7,7 +7,7 @@ Analysis of NC census and elections data to identify areas of low minority voter
 ## Environment
 
 * Python 3.6.6
-* Jupyter | Geopandas | [GeoPy](https://github.com/geopy/geopy) | [ipyLeaflet](https://github.com/jupyter-widgets/ipyleaflet) | [Dask](https://dask.org/) | requests | spyder
+* Jupyter | Geopandas | [GeoPy](https://github.com/geopy/geopy) | requests | spyder | [folium](http://python-visualization.github.io/folium/) 
 
 
 
