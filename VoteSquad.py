@@ -129,7 +129,7 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
     #Return the dataframe
     return dfData
     
-def get_voter_data(data_file, address_file, county_name, out_csv):
+def get_voter_data(data_file, address_file, county_name, out_shapefile):
     '''Creates a geocoded feature class of voters within the selected county.
     
     Description:
@@ -147,17 +147,21 @@ def get_voter_data(data_file, address_file, county_name, out_csv):
         geodataframe of addresses
     '''
     #Read in all the data
-    print("reading in the voter regisration data file...")
+    print("reading in the voter registration data file...")
     dfAll = pd.read_csv(data_file,
                     usecols=['county_desc','voter_reg_num','res_street_address',
                              'res_city_desc','state_cd','zip_code','race_code',
                              'ethnic_code','gender_code','party_cd','ncid'],
                     sep='\t',
-                    dtype='str',
                     encoding = "ISO-8859-1")
+    
     #Select records for the provided county name - into a new dataframe
     print("  Selecting records for {} county...".format(county_name))
     dfCounty = dfAll[dfAll['county_desc'] == county_name.upper()].reindex()
+    
+    #Remove dfAll to free memory
+    del(dfAll)
+    
     #Drop the county name from the table and set the voter registration # as index
     print("  Tidying data...")
     dfCounty.drop('county_desc',axis=1,inplace=True)
@@ -165,25 +169,51 @@ def get_voter_data(data_file, address_file, county_name, out_csv):
     #Drop rows with no address data
     dfCounty.dropna(how='any',inplace=True,
                     subset=['res_street_address','res_city_desc','state_cd','zip_code'])
-    #Add an address 
-    dfCounty['address'] = (dfCounty['res_street_address'] + " " 
-                         + dfCounty['res_city_desc'] + " " 
-                         + dfCounty['state_cd'] + " "
-                         + dfCounty['zip_code'])
-    #Write to a file
-    dfCounty.to_csv(out_csv,index=True,index_label='voter_reg_num')
+    #Remove double spaces from the residential address field 
+    dfCounty['res_street_address'] = dfCounty['res_street_address'].apply(lambda x: ' '.join(x.split()))
     
-    return dfCounty
-
-def geocode_voter_data(df_voter, address_file, out_shapefile):
     #Read address file into a dataframe
     print("Reading in address file...")
     dfAddresses = pd.read_csv(address_file,
-                          usecols=['st_address','city','zip','latitude','longitude'])
-    #Add cleaned address field
-    dfVoter['addr'] = dfVoter.res_street_address.apply(lambda x: "{} {} {}".format(x.split()[0],x.split()[1],x.split()[2]))
+                              usecols=['st_address','city','zip','latitude','longitude'])
     
-    #Join the tables
+    #Join coords to dfVoter
+    print("Joining address to voter data")
+    dfX = pd.merge(left=dfCounty,
+                   left_on=['res_street_address','res_city_desc','zip_code'],
+                   right=dfAddresses,
+                   right_on=['st_address','city','zip'],
+                   how='left')
+    
+    #Convert to geodataframe
+    print("Converting to spatial dataframe")
+    from shapely.geometry import Point
+    geom = [Point(x,y) for x,y in zip(dfX.longitude,dfX.latitude)]
+    gdfVoter = gpd.GeoDataFrame(dfX,geometry=geom)
+    
+    #Save the geodataframe
+    if out_shapefile == '': return gdfVoter
+    
+    #Otherwise, save to a file
+    print("Saving to {}".format(out_shapefile))
+    gdfVoter.to_file(out_shapefile,filetype='Shapefile')
+    
+    #Write projection to .prj file
+    with open(out_shapefile[:-3]+'prj','w') as outPrj:
+        outPrj.write('GEOGCS["GCS_North_American_1983",'+
+                     'DATUM["D_North_American_1983",'+
+                     'SPHEROID["GRS_1980",6378137.0,298.257222101]],'+
+                     'PRIMEM["Greenwich",0.0],'+
+                     'UNIT["Degree",0.0174532925199433]]')
+    
+    #Write metadata  to .txt file
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    with open(out_shapefile[:-3]+'txt','w') as outTxt:
+        outTxt.write('Voter data for {} Co. extracted from\n'.format(county_name) +
+                     'NC SBE data on {}'.format(current_date)
+                     )
+    
+    return gdfVoter
 #%% main
 #Set the run time variables
 state_fips = '37'
@@ -191,13 +221,21 @@ county_fips  = '183'
 
 #Get/set the intermediate filenames
 block_shapefile_filename = 'scratch/wake_blocks.shp'
+voter_shapefile_name = 'scratch/wake_voters.shp'
 
 #Get the Census API key
 censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
 
+#Path to NC SBE data files
+dataFile = './data/NCSBE/ncvoter_Statewide.txt'
+addressFile = './data/NCSBE/address_points_sboe/Shapefiles/Address_pts/address/address_points_wake.csv'
+
 #Get the Census block features and attributes
 #dfBlocks = get_block_attributes(state_fips,county_fips,block_attribute_filename,censusKey)
 #gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
+
+gdfVoter = get_voter_data(dataFile,addressFile,"WAKE",voter_shapefile_name)
+#%%
 
 #Get voter data
 dataFile = './data/NCSBE/ncvoter_Statewide.txt'
