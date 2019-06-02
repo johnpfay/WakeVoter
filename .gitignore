@@ -13,3 +13,6 @@ data/wakeOverview_36x48.pdf
 data/orgUnits_wake.xlsx
 
 .spyproject/*
+GIS/Index/*
+GIS/*.gdb/*
+GIS/ImportLog/*
