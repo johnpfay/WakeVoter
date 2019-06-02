@@ -13,15 +13,28 @@ import requests
 from datetime import datetime
 
 #%% FUNCTIONS
-def get_block_features(st_fips,co_fips,output_shapefile):
+def get_block_features(st_fips,co_fips,output_shapefile,api_key):
     '''Imports census block features for the supplied county FIPS code
+    
+    Description:
+        Extracts 2010 census block features for the provided county into a 
+        geodataframe, retrieves race composition attributes, and then joins
+        these attributes (population, black population, population 18+, 
+        black population 18+, and percentages) to the blocks. 
+        
+        Census feature data are from 'https://www2.census.gov/geo/tiger/'.
+        
+        If a shapefile name is provided, the data are saved to that name. Otherwise,
+        just the geodataframe is returned.
     
     Args:
         st_fips(str): State FIPS code (e.g. '37')
         co_fips(str): County FIPS code (e.g. '183')
+        output_shapefile(str)[optional]: Name to save output shapefile
+        api_key(str): Census API key
         
     Returns:
-        geodataframe of census blocks for the county
+        Geodataframe of census blocks for the county with race data
     '''
     #Pull the state block data for the supplied FIPS code
     print("Downloading blocks for {}; this take a few minutes...".format(st_fips))
@@ -32,7 +45,16 @@ def get_block_features(st_fips,co_fips,output_shapefile):
     print("Subsetting data for County FIPS ".format(co_fips))
     fcCoBlocks = fcStBlocks[fcStBlocks.COUNTYFP10 == co_fips]
     
-    #Save to a file
+    #Retrieve block attribute data
+    dfAttribs = get_block_attributes(st_fips,co_fips,'',api_key)
+    fcCoBlocks =  pd.merge(left=fcCoBlocks,left_on='BLOCKID10',
+                           right=dfAttribs,right_on='GEOID10',
+                           how='outer')
+    
+    #If no output name is given, just return the geodataframe
+    if output_shapefile == '': return fcCoBlocks
+    
+    #Otherwise, save to a file
     print("Saving to {}".format(output_shapefile))
     fcCoBlocks.to_file(output_shapefile,filetype='Shapefile')
     
@@ -100,27 +122,86 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
     dfData.fillna(0,inplace=True)
     #Remove GEOID component columns
     dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
-    #Export the relevant columns to a csv file
-    print("...saving data to {}".format(output_csv))
-    dfData.to_csv(output_csv,index=False)
+    #Export the relevant columns to a csv file, if a name is given
+    if output_csv:
+        print("...saving data to {}".format(output_csv))
+        dfData.to_csv(output_csv,index=False)
     #Return the dataframe
     return dfData
     
+def get_voter_data(data_file, address_file, county_name, out_csv):
+    '''Creates a geocoded feature class of voters within the selected county.
+    
+    Description:
+        Extracts voter data for the provided county from the NC SBE voter
+        registration database (http://dl.ncsbe.gov/data/ncvoter_Statewide.zip), 
+        and then "geocodes" the data by joining the registered voter's address
+        to SBE's address file (https://dl.ncsbe.gov/index.html?prefix=ShapeFiles/).
+        
+    Args:
+        data_file(str): Path to local, unzipped voter registration database
+        address_file(str): Path to local, unzipped address points file
+        county_name(str): Name of county to extract
+        out_shapefile(str): Name of shapefile in which to save the output
+    Returns: 
+        geodataframe of addresses
+    '''
+    #Read in all the data
+    print("reading in the voter regisration data file...")
+    dfAll = pd.read_csv(data_file,
+                    usecols=['county_desc','voter_reg_num','res_street_address',
+                             'res_city_desc','state_cd','zip_code','race_code',
+                             'ethnic_code','gender_code','party_cd','ncid'],
+                    sep='\t',
+                    dtype='str',
+                    encoding = "ISO-8859-1")
+    #Select records for the provided county name - into a new dataframe
+    print("  Selecting records for {} county...".format(county_name))
+    dfCounty = dfAll[dfAll['county_desc'] == county_name.upper()].reindex()
+    #Drop the county name from the table and set the voter registration # as index
+    print("  Tidying data...")
+    dfCounty.drop('county_desc',axis=1,inplace=True)
+    dfCounty.set_index('voter_reg_num',inplace=True)
+    #Drop rows with no address data
+    dfCounty.dropna(how='any',inplace=True,
+                    subset=['res_street_address','res_city_desc','state_cd','zip_code'])
+    #Add an address 
+    dfCounty['address'] = (dfCounty['res_street_address'] + " " 
+                         + dfCounty['res_city_desc'] + " " 
+                         + dfCounty['state_cd'] + " "
+                         + dfCounty['zip_code'])
+    #Write to a file
+    dfCounty.to_csv(out_csv,index=True,index_label='voter_reg_num')
+    
+    return dfCounty
 
+def geocode_voter_data(df_voter, address_file, out_shapefile):
+    #Read address file into a dataframe
+    print("Reading in address file...")
+    dfAddresses = pd.read_csv(address_file,
+                          usecols=['st_address','city','zip','latitude','longitude'])
+    #Add cleaned address field
+    dfVoter['addr'] = dfVoter.res_street_address.apply(lambda x: "{} {} {}".format(x.split()[0],x.split()[1],x.split()[2]))
+    
+    #Join the tables
 #%% main
 #Set the run time variables
 state_fips = '37'
 county_fips  = '183'
 
+#Get/set the intermediate filenames
+block_shapefile_filename = 'scratch/wake_blocks.shp'
+
 #Get the Census API key
 censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
 
 #Get the Census block features and attributes
-gdfBlocks = get_block_features(state_fips,county_fips,'scratch/wake_blocks.shp')
-dfBlocks = get_block_attributes(state_fips,county_fips,'scratch/wake_attributes.csv',censusKey)
+#dfBlocks = get_block_attributes(state_fips,county_fips,block_attribute_filename,censusKey)
+#gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
 
-#Join the attributes to the features
-gdfBlocks =  pd.merge(left=gdfBlocks,left_on='BLOCKID10',
-                      right=dfBlocks,right_on='GEOID10',
-                      how='outer')
-gdfBlocks.to_file('scratch/WakeBlocks3.shp',filetype='Shapefile')
+#Get voter data
+dataFile = './data/NCSBE/ncvoter_Statewide.txt'
+outFile = './data/NCSBE/ncvoter_Wake.csv'
+dfVoter = get_voter_data(dataFile,'WAKE',outFile)
+
+#Geocode voter data
