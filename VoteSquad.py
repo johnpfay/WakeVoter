@@ -97,7 +97,7 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
     dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
     dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
     #Set null values to zero
-    dfData.fillna(0)
+    dfData.fillna(0,inplace=True)
     #Remove GEOID component columns
     dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
     #Export the relevant columns to a csv file
@@ -116,9 +116,11 @@ county_fips  = '183'
 censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
 
 #Get the Census block features and attributes
-#gdfBlocks = get_block_features(state_fips,county_fips,'scratch/wake_blocks.shp')
+gdfBlocks = get_block_features(state_fips,county_fips,'scratch/wake_blocks.shp')
 dfBlocks = get_block_attributes(state_fips,county_fips,'scratch/wake_attributes.csv',censusKey)
 
-dfBlocks.dtypes
 #Join the attributes to the features
-dfBlocks[['P003001','P003003','P010001','P010004']] = dfBlocks[['P003001','P003003','P010001','P010004']].apply(pd.to_numeric)
+gdfBlocks =  pd.merge(left=gdfBlocks,left_on='BLOCKID10',
+                      right=dfBlocks,right_on='GEOID10',
+                      how='outer')
+gdfBlocks.to_file('scratch/WakeBlocks3.shp',filetype='Shapefile')
