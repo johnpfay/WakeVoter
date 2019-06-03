@@ -235,11 +235,6 @@ addressFile = './data/NCSBE/address_points_sboe/Shapefiles/Address_pts/address/a
 #gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
 
 gdfVoter = get_voter_data(dataFile,addressFile,"WAKE",voter_shapefile_name)
-#%%
-
-#Get voter data
-dataFile = './data/NCSBE/ncvoter_Statewide.txt'
-outFile = './data/NCSBE/ncvoter_Wake.csv'
-dfVoter = get_voter_data(dataFile,'WAKE',outFile)
-
-#Geocode voter data
+#%% Spatial overlays
+#Join block and precinct values to voter points
+#Compute and join voting history to voter points
