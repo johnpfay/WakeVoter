@@ -3,7 +3,22 @@
 VoteSquad.py
 
 Description:
-    Development of a voter database.
+    Development of a voter database consisting of geolocated voter registration data with attached
+    information on voting frequency, race, gender, and registered party affiliation as well as the
+    census block and voting precinct in which the registered voter resides. 
+    
+    This database is then aggregated such that clusters of 100 registered black voters within a single
+    precinct are identified such that a "super voter" (i.e. a consistent voter) can address these
+    other voters efficiently. 
+    
+Workflow:
+    Part 1: Voting data
+        Voter registration data, voting history, and address records are subset from the NC State
+        Board of Elections (SBE) data files for the specified county. Addresses are joined to the 
+        registration data. Then voter history data is summarized to list the frequency of elections
+        in which the registrant voted, and is also joined to the registration data.  
+    
+    
     
 Created: Summer 2019
 Creator: John.Fay@duke.edu
@@ -12,6 +27,8 @@ Creator: John.Fay@duke.edu
 #%% IMPORTS
 import pandas as pd
 import geopandas as gpd
+from shapely import speedups
+speedups.enable()
 import os
 import requests
 from datetime import datetime
@@ -133,7 +150,7 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
     #Return the dataframe
     return dfData
     
-def get_voter_data(data_file, address_file, county_name, out_shapefile):
+def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite=False):
     '''Creates a geocoded feature class of voters within the selected county.
     
     Description:
@@ -150,18 +167,25 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile):
     Returns: 
         geodataframe of addresses
     '''
-    #Read in all the data
-    print("reading in the voter registration data file...")
+    #See if the output already exists (and if overwrite is False); if so, create a geodataframe
+    if os.path.exists(out_shapefile) and not overwrite:
+        print("Output shapefile exists.\nCreating geodata dataframe from {}".format(out_shapefile))
+        gdfBlocks = gpd.read_file(out_shapefile)
+        return(gdfBlocks
+               )
+    #Othersiwse read in all the voter registration data
+    print("  Reading in the voter registration data file...")
     dfAll = pd.read_csv(data_file,
                     usecols=['county_desc','voter_reg_num','res_street_address',
-                             'res_city_desc','state_cd','zip_code','race_code',
+                             'res_city_desc','state_cd','zip_code','precinct_abbrv','race_code',
                              'ethnic_code','gender_code','party_cd','ncid'],
                     sep='\t',
                     encoding = "ISO-8859-1")
     
     #Select records for the provided county name - into a new dataframe
-    print("  Selecting records for {} county...".format(county_name))
+    print("  Selecting records for {} county...".format(county_name),end='')
     dfCounty = dfAll[dfAll['county_desc'] == county_name.upper()].reindex()
+    print(" {} records selected".format(dfCounty.shape[0]))
     
     #Remove dfAll to free memory
     del(dfAll)
@@ -195,7 +219,7 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile):
     print("Converting to spatial dataframe")
     from shapely.geometry import Point
     geom = [Point(x,y) for x,y in zip(dfX.longitude,dfX.latitude)]
-    gdfVoter = gpd.GeoDataFrame(dfX,geometry=geom)
+    gdfVoter = gpd.GeoDataFrame(dfX,geometry=geom,crs={'init':'epsg:4269'})
     
     #Save the geodataframe
     if out_shapefile == '': return gdfVoter
@@ -215,9 +239,9 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile):
     #Write metadata  to .txt file
     current_date = datetime.now().strftime("%Y-%m-%d")
     with open(out_shapefile[:-3]+'txt','w') as outTxt:
-        outTxt.write('Voter data for {} Co. extracted from\n'.format(county_name) +
-                     'NC SBE data on {}'.format(current_date)
-                     )
+        outTxt.write('Voter registration data for {} Co. extracted from\n'.format(county_name))
+        outTxt.write('NC SBE: https://www.ncsbe.gov/data-stats/other-election-related-data\n')
+        outTxt.write('File created on {}'.format(current_date))
     
     return gdfVoter
 
@@ -266,26 +290,26 @@ def subset_address_data(state_address_file,county_name,output_county_address_fil
     #Return the filename
     return output_county_address_file
     
-def get_voter_history_data(state_voter_history_file,county_name,save_filename):
+def get_voter_history_data(state_voter_history_file,county_name,save_filename,overwrite=False):
     #Check if the county data has already been created
-    if os.path.exists(save_filename):
-        print("{} already created.".format(save_filename))
+    if os.path.exists(save_filename) and not overwrite:
+        print("  {} already created.".format(save_filename))
         return pd.read_csv(save_filename)
     #Otherwise, create it
-    print("Reading statewide voter history file")
+    print("  Reading statewide voter history file...")
     dfHist = pd.read_csv(state_voter_history_file,sep='\t',
                          usecols=['ncid','county_desc','voter_reg_num','voted_party_cd','election_lbl']
                         )
-    print("Extracting county data")
+    print("  Extracting county data...")
     dfHistCounty = dfHist[dfHist.county_desc == county_name.upper()]
-    print("Saving to file")
-    dfHistCounty.to_csv(save_filename,index=False)
-    return dfHistCounty
-    
-def summarize_voter_history_data(voter_history_dataframe):
-    dfVoteCount = voter_history_dataframe['ncid'].value_counts().reset_index()
+    #Summarize the voting history data to # elections per registrant
+    print("  Summarizing voter history data")
+    dfVoteCount = dfHistCounty['ncid'].value_counts().reset_index()
     dfVoteCount.dropna(how='any',axis='rows',inplace=True)
     dfVoteCount.columns = ['ncid','elections']
+    #Save
+    print("  Saving to file...")
+    dfVoteCount.to_csv(save_filename,index=False)
     return dfVoteCount
 
 #%% main
@@ -304,17 +328,16 @@ county_address_file = './scratch/wake_addresses.csv'
 voter_shapefile_name = './scratch/wake_voters.shp'
 voter_history_file = './scratch/wake_history.csv'
 
-
 #Get the Census API key
 censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
 
-#Get the NC SBE address file
+#Get the NC SBE address file for the state and then the county subset
 stateAddressData = get_address_data('./data/NCSBE')
 countyAddressData = subset_address_data(state_address_file=stateAddressData,
                                         county_name=county_name,
                                         output_county_address_file=county_address_file)
 
-#Get the Census block features and attributes
+#Get the Census block features and attributes for the county
 if os.path.exists(block_shapefile_filename):
     print("Reading block features from {}".format(block_shapefile_filename))
     gdfBlocks = gpd.read_file(block_shapefile_filename)
@@ -323,20 +346,21 @@ else:
     gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
 
 #Get the voter features
-if os.path.exists(voter_shapefile_name):
-    print("Reading voter features from {}".format(voter_shapefile_name))
-    gdfVoter = gpd.read_file(voter_shapefile_name)
-else:
-    print("Assembling voter features from local files resources...")    
-    #Retrieve file
-    gdfVoter = get_voter_data(state_voter_reg_file,
-                              county_address_file,
-                              county_name,
-                              voter_shapefile_name)
-
+print("Assembling voter features from local files resources...")    
+#Retrieve voter features
+print("  Getting voting data as features")
+gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,voter_shapefile_name)
+#Retreive voter history summary
+dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
+#Join the summary data to the voter features
+gdfVoter2 = pd.merge(gdfVoter,dfVoterSummary,how = 'inner',left_on='ncid',right_on='ncid')
+#Isolate meaningful records (DEMS)
+gdfDems = gdfVoter2[gdfVoter2.party_cd == 'DEM']
+#Save
+gdfDems.to_file('./scratch/WakeDEMS.shp')
 #%%    
 dfVoterHistory = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
-dfVoterSummary = summarize_voter_history_data(dfVoterHistory)
+
 gdfVoteGeo = pd.merge(gdfVoter,dfVoterSummary,how = 'inner',left_on='ncid',right_on='ncid')
 
 gdfVoteGeo2 = gpd.sjoin(gdfVoteGeo,gdfBlocks,op='within')
