@@ -125,7 +125,7 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
               'key':api_key
          }
     #Send the request and convert the response to JSON format
-    print("...downloading data...")
+    print("...downloading data from {}")
     response = requests.get(theURL,params) 
     response_json = response.json()
     #Convert JSON to pandas dataframe
@@ -293,23 +293,24 @@ def subset_address_data(state_address_file,county_name,output_county_address_fil
 def get_voter_history_data(state_voter_history_file,county_name,save_filename,overwrite=False):
     #Check if the county data has already been created
     if os.path.exists(save_filename) and not overwrite:
-        print("  {} already created.".format(save_filename))
-        return pd.read_csv(save_filename)
-    #Otherwise, create it
-    print("  Reading statewide voter history file...")
-    dfHist = pd.read_csv(state_voter_history_file,sep='\t',
-                         usecols=['ncid','county_desc','voter_reg_num','voted_party_cd','election_lbl']
-                        )
-    print("  Extracting county data...")
-    dfHistCounty = dfHist[dfHist.county_desc == county_name.upper()]
+        print("  {} already created; creating dataframe".format(save_filename))
+        dfHistCounty = pd.read_csv(save_filename)
+    else: #Otherwise, create it from the state data file
+        print("  Reading statewide voter history file...")
+        dfHist = pd.read_csv(state_voter_history_file,sep='\t',
+                             usecols=['ncid','county_desc','voter_reg_num','voted_party_cd','election_lbl']
+                            )
+        print("  Extracting county data...")
+        dfHistCounty = dfHist[dfHist.county_desc == county_name.upper()]
+        #Save to file
+        print("  Saving to file...")
+        dfHistCounty.to_csv(save_filename,index=False)
     #Summarize the voting history data to # elections per registrant
     print("  Summarizing voter history data")
     dfVoteCount = dfHistCounty['ncid'].value_counts().reset_index()
     dfVoteCount.dropna(how='any',axis='rows',inplace=True)
     dfVoteCount.columns = ['ncid','elections']
-    #Save
-    print("  Saving to file...")
-    dfVoteCount.to_csv(save_filename,index=False)
+
     return dfVoteCount
 
 #%% main
@@ -354,16 +355,8 @@ gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,v
 dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
 #Join the summary data to the voter features
 gdfVoter2 = pd.merge(gdfVoter,dfVoterSummary,how = 'inner',left_on='ncid',right_on='ncid')
+gdfVoter2.to_file('./scratch/WakeVoterData.shp')
 #Isolate meaningful records (DEMS)
 gdfDems = gdfVoter2[gdfVoter2.party_cd == 'DEM']
 #Save
 gdfDems.to_file('./scratch/WakeDEMS.shp')
-#%%    
-dfVoterHistory = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
-
-gdfVoteGeo = pd.merge(gdfVoter,dfVoterSummary,how = 'inner',left_on='ncid',right_on='ncid')
-
-gdfVoteGeo2 = gpd.sjoin(gdfVoteGeo,gdfBlocks,op='within')
-gdfVoteGeo.to_file('scratch/votepoints.shp',filetype='shapefile')
-
-#Compute and join voting history to voter points
