@@ -188,6 +188,8 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile):
                    right=dfAddresses,
                    right_on=['st_address','city','zip'],
                    how='left')
+    #Drop records that weren't geocoded
+    dfX.dropna(axis=0,subset=['longitude','latitude'],inplace=True)
     
     #Convert to geodataframe
     print("Converting to spatial dataframe")
@@ -292,13 +294,16 @@ state_fips = '37'
 county_fips  = '183'
 county_name = 'WAKE'
 
-#Get/set the intermediate filenames
-block_shapefile_filename = './scratch/wake_blocks.shp'
-county_address_file = './scratch/wake_addresses.csv'
+#Get the data file paths
 state_voter_reg_file = './data/NCSBE/ncvoter_Statewide.txt'
 state_voter_history_file = './data/NCSBE/ncvhis_Statewide.txt'
+
+#Set the output filenames
+block_shapefile_filename = './scratch/wake_blocks.shp'
+county_address_file = './scratch/wake_addresses.csv'
 voter_shapefile_name = './scratch/wake_voters.shp'
 voter_history_file = './scratch/wake_history.csv'
+
 
 #Get the Census API key
 censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
@@ -312,6 +317,7 @@ countyAddressData = subset_address_data(state_address_file=stateAddressData,
 #Get the Census block features and attributes
 if os.path.exists(block_shapefile_filename):
     print("Reading block features from {}".format(block_shapefile_filename))
+    gdfBlocks = gpd.read_file(block_shapefile_filename)
 else:
     print("Assembling block features from web resources...")
     gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
@@ -331,8 +337,9 @@ else:
 #%%    
 dfVoterHistory = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
 dfVoterSummary = summarize_voter_history_data(dfVoterHistory)
-gdfVoteGeo = pd.merge(gdfVoter,dfVoterSummary,how = 'right',left_on='ncid',right_on='ncid')
-#%% Spatial overlays
+gdfVoteGeo = pd.merge(gdfVoter,dfVoterSummary,how = 'inner',left_on='ncid',right_on='ncid')
 
-#Join block and precinct values to voter points
+gdfVoteGeo2 = gpd.sjoin(gdfVoteGeo,gdfBlocks,op='within')
+gdfVoteGeo.to_file('scratch/votepoints.shp',filetype='shapefile')
+
 #Compute and join voting history to voter points
