@@ -4,7 +4,7 @@ data/locators/*
 data/spatial/*
 data/NCSBE/*Statewide.*
 data/NCSBE/*.csv
-data/NCSBE/address_points_sboe/*
+data/NCSBE/Shapefiles/*
 data/NCSBE/address_points_sboe.zip
 scratch/*
 
