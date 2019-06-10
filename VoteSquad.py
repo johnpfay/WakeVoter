@@ -59,7 +59,7 @@ def get_county_voter_history_file(state_history_file):
     '''Returns the file name containing county voter history data. This
     will download the file if it does not exist.
     '''
-    county_voter_history_file = './data/NCSBE/ncvhis_Wake.txt'
+    county_voter_history_file = './scratch/wake_history.csv'
     return county_voter_history_file
 
 def get_county_voter_MECE_data(state_history_file, county_name):
@@ -85,11 +85,15 @@ def get_county_voter_MECE_data(state_history_file, county_name):
         dataframe of voters, indexed by `ncid`
     '''
     #Read the data into a dataframe
-    print(" Reading in state voter history data")
-    dfStateHistory = pd.read_csv(state_history_file,sep='\t',usecols=('county_desc','election_lbl','ncid'))
-    #Subset records for the county
-    print(" Subseting county records")
-    dfCountyHistory = dfStateHistory[dfStateHistory['county_desc']==county_name]
+    if state_history_file[-4:] == '.txt':
+        print(" Reading in state voter history data")
+        dfStateHistory = pd.read_csv(state_history_file,sep='\t',usecols=('county_desc','election_lbl','ncid'))
+        #Subset records for the county
+        print(" Subseting county records")
+        dfCountyHistory = dfStateHistory[dfStateHistory['county_desc']==county_name]
+    else:
+        print(" Reading in county records")
+        dfCountyHistory = pd.read_csv(state_history_file,usecols=('county_desc','election_lbl','ncid'))
     
     #Subset records for the elections of interest
     print(" Subsetting election data")
@@ -503,11 +507,11 @@ state_voter_reg_file = get_state_voter_registation_file(NCSBE_folder)
 
 print("  Getting voting history data for {} county".format(county_name))
 state_voter_history_file = get_state_voter_history_file(NCSBE_folder)
+county_voter_history_file = get_county_voter_history_file(state_voter_history_file)
 
 print("  Summarize voting history for {} county".format(county_name))
 #dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
-dfVoterMECE = get_county_voter_MECE_data(state_voter_history_file,county_name)
-
+dfVoterMECE = get_county_voter_MECE_data(county_voter_history_file,county_name)
 
 #Get the file of NC SBE address s for the state (if needed) and then the county subset
 print("  Getting address data for {} county".format(county_name))
@@ -520,9 +524,8 @@ gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,v
 #Append voter summary data
 print("  Appending voter history data to feature class")
 gdfVoter2 = pd.merge(gdfVoter,dfVoterMECE,how = 'left',left_on='ncid',right_on='ncid')
-
-#Append block codes
-
+gdfVoter2.loc[gdfVoter2.MECE.isnull(),"MECE"] = 5
+gdfVoter2.to_csv('./scratch/VoterXY.csv',index=False)
 
 #Get the Census block features and attributes for the county
 if os.path.exists(block_shapefile_filename):
@@ -532,9 +535,7 @@ else:
     print("Assembling block features from web resources...")
     gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
 
+#Join blocks to voter points
+dfVoter3 = gpd.sjoin(gdfVoter2,gdfBlocks,how='left',op='within')
+dfVoter3.to_file('./scratch/WakeVoterData2.shp')
 
-gdfVoter2.to_file('./scratch/WakeVoterData.shp')
-#Isolate meaningful records (DEMS)
-gdfDems = gdfVoter2[gdfVoter2.party_cd == 'DEM']
-#Save
-gdfDems.to_file('./scratch/WakeDEMS.shp')
