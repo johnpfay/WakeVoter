@@ -34,6 +34,105 @@ import requests
 from datetime import datetime
 
 #%% FUNCTIONS
+def get_state_voter_registation_file(NCSBE_folder):
+    '''Returns the file name containing statewide voter registration data. This
+    will download the file if it does not exist.
+    '''
+    state_voter_reg_file = './data/NCSBE/ncvoter_Statewide.txt'
+    return state_voter_reg_file
+
+def get_state_voter_history_file(NCSBE_folder):
+    '''Returns the file name containing statewide voter history data. This
+    will download the file if it does not exist.
+    '''
+    state_voter_history_file = './data/NCSBE/ncvhis_Statewide.txt'
+    return state_voter_history_file
+
+def get_county_voter_registation_file(state_registration_file):
+    '''Returns the file name containing county voter registration data. This
+    will download the file if it does not exist.
+    '''
+    county_voter_reg_file = './data/NCSBE/ncvoter_Wake.csv'
+    return county_voter_reg_file
+
+def get_county_voter_history_file(state_history_file):
+    '''Returns the file name containing county voter history data. This
+    will download the file if it does not exist.
+    '''
+    county_voter_history_file = './data/NCSBE/ncvhis_Statewide.txt'
+    return county_voter_history_file
+
+def get_state_address_file(NCSBE_folder):
+    '''Returns the file name containing state address data. This will
+    download the file if it does not exist.
+    '''
+    import requests, zipfile, io, glob
+    #First, see if the state file has already been retrieved, return if so
+    file_list = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)
+    if len(file_list) > 0:
+        state_address_file = file_list[0]
+        print(" Statewide address file found:\n  [{}]".format(state_address_file))
+    else: #Otherwise retrieve the file from the NC SBE server
+        print(" Retrieving address file from NC SBE server...")
+        fileURL = 'https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip'
+        r = requests.get(fileURL)
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        print("   Unpacking data...")
+        z.extractall(NCSBE_folder)
+        #Get the file path
+        state_address_file = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)[0]
+        print("   Statewide data stored as\n  [{}]".format(state_address_file))
+        return(state_address_file)
+
+
+def get_county_address_file(county_name, NCSBE_folder):
+    '''Creates a local csv file of NC addresses for the county provided.
+    
+    Args:
+        county_name(str): The name of the county to retrieve
+        output_folder(str): Folder into which csv file should be saved
+        
+    Returns:
+        dataframe of addresses for the county.
+    '''
+    import glob
+    #Capitalize the county name, for consistency
+    county_name = county_name.upper()
+    
+    #See if the county file already exists, if so create and return a dataframe
+    file_list = glob.glob(NCSBE_folder+'/**/address_points_{}.csv'.format(county_name),recursive=True)
+    if len(file_list) > 0:
+        county_address_file = file_list[0]
+        print(" Found country address file:\n  [{}]".format(county_address_file))
+        return county_address_file
+    else: 
+        print(" Building country address file...")
+    
+    #Get the state address file (this will pull it, if needed)
+    state_address_file = get_state_address_file(NCSBE_folder)
+    #Get the associated metadata file (containing counties)
+    state_address_metadata = glob.glob(NCSBE_folder+'/**/address_points_data_format.txt',recursive=True)[0] 
+    
+    #Generate a list of columns from the metadata file 
+    print("...Generating statewide address dataframe...")
+    with open(state_address_metadata,'r') as colFile:
+        theText = colFile.readlines()
+        columns = [theLine.split("\n")[0].split()[0] for theLine in theText[7:]]
+        print(columns)
+    #Read in the data, using the metadata to supply column names
+    dfState = pd.read_csv(state_address_file,sep='\t',dtype='str',
+                          header=None,index_col=0,names = columns)
+    print("...{} statewide records loaded".format(dfState.shape[0]))
+    #Extract Wake Co addresses and save
+    dfCounty = dfState[dfState.county == county_name]
+    print("...{} county records extracted".format(dfCounty.shape[0]))
+    #Save to a file
+    county_address_file = state_address_file.replace('sboe.txt','{}.csv'.format(county_name))
+    print(" Country address file created:\n  [{}]".format(county_address_file))
+    dfCounty.to_csv(county_address_file,index=False)
+    #Return the dataframe
+    return county_address_file
+        
 def get_block_features(st_fips,co_fips,output_shapefile,api_key):
     '''Imports census block features for the supplied county FIPS code
     
@@ -318,25 +417,36 @@ def get_voter_history_data(state_voter_history_file,county_name,save_filename,ov
 state_fips = '37'
 county_fips  = '183'
 county_name = 'WAKE'
-
-#Get the data file paths
-state_voter_reg_file = './data/NCSBE/ncvoter_Statewide.txt'
-state_voter_history_file = './data/NCSBE/ncvhis_Statewide.txt'
+NCSBE_folder ='.\\data\\NCSBE'
 
 #Set the output filenames
-block_shapefile_filename = './scratch/wake_blocks.shp'
-county_address_file = './scratch/wake_addresses.csv'
 voter_shapefile_name = './scratch/wake_voters.shp'
 voter_history_file = './scratch/wake_history.csv'
+block_shapefile_filename = './scratch/wake_blocks.shp'
+county_address_file = './scratch/wake_addresses.csv'
 
 #Get the Census API key
 censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
 
-#Get the NC SBE address file for the state and then the county subset
-stateAddressData = get_address_data('./data/NCSBE')
-countyAddressData = subset_address_data(state_address_file=stateAddressData,
-                                        county_name=county_name,
-                                        output_county_address_file=county_address_file)
+#Get the NC SBE voter registration and history files for the county 
+print("  Getting voting registration data for {} county".format(county_name))
+state_voter_reg_file = get_state_voter_registation_file(county_name,NCSBE_folder)
+county_voter_reg_file = get_county_voter_registation_file(state_voter_reg_file)
+
+print("  Getting voting history data for {} county".format(county_name))
+state_voter_history_file = get_state_voter_registation_file(county_name,NCSBE_folder)
+
+print("  Summarize voting history for {} county".format(county_name))
+dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
+
+#Get the file of NC SBE address s for the state (if needed) and then the county subset
+print("  Getting address data for {} county".format(county_name))
+county_address_file = get_county_address_file(county_name='WAKE',output_folder='.\\data\\NCSBE')
+
+#Retrieve voter features
+print("  Getting voting data as features")
+gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,voter_shapefile_name)
+
 
 #Get the Census block features and attributes for the county
 if os.path.exists(block_shapefile_filename):
@@ -348,9 +458,6 @@ else:
 
 #Get the voter features
 print("Assembling voter features from local files resources...")    
-#Retrieve voter features
-print("  Getting voting data as features")
-gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,voter_shapefile_name)
 #Retreive voter history summary
 dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
 #Join the summary data to the voter features
