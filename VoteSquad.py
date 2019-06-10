@@ -62,6 +62,67 @@ def get_county_voter_history_file(state_history_file):
     county_voter_history_file = './data/NCSBE/ncvhis_Statewide.txt'
     return county_voter_history_file
 
+def get_county_voter_MECE_data(county_name, state_history_file):
+    '''Returns a dataframe of MECE tags for each voter in the county
+    
+    Description:
+        Examines the voter history of each voter and assignes a MECE score based
+        on the elections in which he/she voted. Scores are as follows:
+        1. Any voter who voted in Oct OR Nov 2017 
+        2. Any voter who didn't vote in Oct OR Nov 2017 but voted in  Nov 2018
+        3. Any voter who didn't vote in Oct/Nov 2017, didn't vote in Nov 2018, 
+           but did vote in Nov 2016
+        4. Any voter who didn't vote in Oct/Nov 2017, didn't vote in Nov 2018, 
+           didn't vote in Nov 2016, but did vote in 2012
+        5. Anyone in the voter-file with no history of voting in Nov 2012, 
+           Nov 2016, Oct/Nov 2017, Nov 2018
+           
+    Args:
+        county_name(str): Name of the county to create the table for
+        state_voter_history_file(str): location of the voting history file
+        
+    Returns:
+        dataframe of voters, indexed by `ncid`
+    '''
+    #Read the data into a dataframe
+    dfStateHistory = pd.read_clipboard(state_history_file,
+                                      usecols=('county_desc','election_lbl','ncid'))
+    #Subset records for the county
+    dfCountyHistory = dfStateHistory.loc[dfStateHistory['county_desc']==county_name:,]
+    
+    #Subset records for the elections of interest
+    elections = ('10/10/2017','11/07/2017','11/06/2018','11/08/2016','11/06/2012')
+    dfSubset = dfCountyHistory.loc[dfCountyHistory.election_lbl.isin(elections),:]
+    
+    #Pivot on these elections
+    dfPivot = pd.pivot_table(dfSubset,
+                             columns = 'election_lbl',
+                             index = 'ncid',
+                             aggfunc = 'count',
+                             fill_value = 0
+                            ).droplevel(level=0,axis=1)
+    
+    #Rename columns
+    dfPivot.rename({'10/10/2017':'Oct17','11/06/2012':'Nov12',
+                    '11/06/2018':'Nov18','11/07/2017':'Nov17',
+                    '11/08/2016':'Nov16'}, axis=1,inplace=True)
+    
+    #Create filters
+    e12 = dfPivot.Nov12 == 1
+    e16 = dfPivot.Nov16 == 1
+    e17 = (dfPivot.Oct17 == 1) | (dfPivot.Nov17 == 1)
+    e18 = dfPivot.Nov18 == 1
+    
+    #Apply filters to assign MECE values
+    dfPivot.loc[e17, "MECE"] = 1
+    dfPivot.loc[~e17 & e18, "MECE"] = 2
+    dfPivot.loc[~e17 & ~e18 & e16, "MECE"] = 3
+    dfPivot.loc[~e17 & ~e18 & ~e16 & e12, "MECE"] = 4
+    dfPivot.loc[~e17 & ~e18 & ~e16 & ~e12, "MECE"] = 5
+    
+    #Return the dataframe
+    return dfPivot
+
 def get_state_address_file(NCSBE_folder):
     '''Returns the file name containing state address data. This will
     download the file if it does not exist.
@@ -430,22 +491,28 @@ censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).ilo
 
 #Get the NC SBE voter registration and history files for the county 
 print("  Getting voting registration data for {} county".format(county_name))
-state_voter_reg_file = get_state_voter_registation_file(county_name,NCSBE_folder)
-county_voter_reg_file = get_county_voter_registation_file(state_voter_reg_file)
+state_voter_reg_file = get_state_voter_registation_file(NCSBE_folder)
+#county_voter_reg_file = get_county_voter_registation_file(state_voter_reg_file)
 
 print("  Getting voting history data for {} county".format(county_name))
-state_voter_history_file = get_state_voter_registation_file(county_name,NCSBE_folder)
+state_voter_history_file = get_state_voter_registation_file(NCSBE_folder)
 
 print("  Summarize voting history for {} county".format(county_name))
 dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
 
 #Get the file of NC SBE address s for the state (if needed) and then the county subset
 print("  Getting address data for {} county".format(county_name))
-county_address_file = get_county_address_file(county_name='WAKE',output_folder='.\\data\\NCSBE')
+county_address_file = get_county_address_file(county_name,NCSBE_folder)
 
 #Retrieve voter features
 print("  Getting voting data as features")
 gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,voter_shapefile_name)
+
+#Append voter summary data
+print("  Appending voter history data to feature class")
+gdfVoter = pd.merge(gdfVoter,dfVoterSummary,how = 'inner',left_on='ncid',right_on='ncid')
+
+#Append zip codes
 
 
 #Get the Census block features and attributes for the county
