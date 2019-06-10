@@ -52,6 +52,16 @@ Address points
 
 ## Workflows
 
+### 1. Extract and organize voting data for [Wake] county
+
+* Pull the voter data from the NC SBE servers
+  * Manually download the [Statewide Voter Registration](http://dl.ncsbe.gov/data/ncvoter_Statewide.zip) and [Statewide Voter History](http://dl.ncsbe.gov/data/ncvhis_Statewide.zip) data sets to a local folder.
+  * Manually download the [NC Address Points](https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip) data file to a local folder.
+
+* Assemble a feature class of voting points for 
+  * Run `get_voter_data()` to select voting records for a specific county and assemble them into a shapefile.
+  * Run 
+
 ### 1. Identify census block groups with > 50% black voters
 
 * Obtain block feature dataset and attribute dataset, subset for Wake Co.
@@ -73,13 +83,3 @@ Address points
 * Assign super voters for each 100 slacker voters in contiguous blocks.
 
 ---
-
-## Scripts
-
-* `Extract-WakeCo-Blocks-To-File.ipynb` 
-  * Queries the online NC statewide block data feature class to extract just blocks in Wake County (FIPS 183). Output is places in the `data/spatial` folder as `tabblock2010_37183_pophu.shp`.
-
-* `IsolateBlocks.ipynb`
-  * Reads in the county census block features (created above) and Census attributes (retrieved from AFF query). The identifies the blocks with > 50% black tenure and extracts those block features meeting that criteria, saving them to the `data/spatial` folder as `tabblock2010_37183_BlackGT50Pct.shp`
-* `Geocode-NCSBE-Data.ipynb` 
-
