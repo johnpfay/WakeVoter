@@ -431,30 +431,6 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     
     return gdfVoter
 
-def subset_address_data(state_address_file,county_name,output_county_address_file):
-    '''Creates a subset of the state datafile and returns the filename.
-    '''
-    #See if the county file already exists, read in as a dataframe if is
-    if os.path.exists(output_county_address_file):
-        print(" County file already extracted...")
-        return(output_county_address_file)
-        
-    #Otherwise read the data int a dataframe
-    print(" Reading statewide data" )
-    columns = ['county_id','county','st_address','city','zip','house_no','half_no','st_pre',
-               'st_name','st_type','st_suf','lat_feet','long_feet','latitude', 'longitude']
-    dfState = pd.read_csv(state_address_file,sep='\t',dtype='str',
-                          header=None,index_col=0, names = columns)
-    print("{} records extracted".format(dfState.shape[0]))
-    #Extract county data and save to file 
-    print(" Extracting records for {} county".format(county_name))
-    dfCounty = dfState[dfState.county == county_name.upper()]
-    #Save to the file
-    print(" Saving to {}".format(output_county_address_file))
-    dfCounty.to_csv(output_county_address_file)
-    #Return the filename
-    return output_county_address_file
-    
 def get_voter_history_data(state_voter_history_file,county_name,save_filename,overwrite=False):
     #Check if the county data has already been created
     if os.path.exists(save_filename) and not overwrite:
