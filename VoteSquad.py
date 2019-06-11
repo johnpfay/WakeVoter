@@ -431,27 +431,6 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     
     return gdfVoter
 
-def get_address_data(output_folder):
-    '''Retrieves the NC SBE Address points file to the folder provided.
-    '''
-    import requests,zipfile, io, glob
-    #See if the file already exists, return if so
-    file_list = glob.glob(output_folder+'/**/address_points_sboe.txt',recursive=True)
-    if len(file_list) > 0:
-        print("Address file already exists")
-        return file_list[0]
-    #Otherwise retrieve the file from the NC SBE server
-    print(" Retrieving address file from NC SBE server...")
-    fileURL = 'https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip'
-    r = requests.get(fileURL)
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    print(" Unpacking data...")
-    z.extractall(output_folder)
-    #Get the file path
-    state_address_file = glob.glob(output_folder+'/**/address_points_data_format.txt',recursive=True)[0]
-    print(" Address data saved to {}".format(state_address_file))
-    return state_address_file
-
 def subset_address_data(state_address_file,county_name,output_county_address_file):
     '''Creates a subset of the state datafile and returns the filename.
     '''
