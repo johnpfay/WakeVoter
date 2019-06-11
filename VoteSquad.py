@@ -431,28 +431,6 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     
     return gdfVoter
 
-def get_voter_history_data(state_voter_history_file,county_name,save_filename,overwrite=False):
-    #Check if the county data has already been created
-    if os.path.exists(save_filename) and not overwrite:
-        print("  {} already created; creating dataframe".format(save_filename))
-        dfHistCounty = pd.read_csv(save_filename)
-    else: #Otherwise, create it from the state data file
-        print("  Reading statewide voter history file...")
-        dfHist = pd.read_csv(state_voter_history_file,sep='\t',
-                             usecols=['ncid','county_desc','voter_reg_num','voted_party_cd','election_lbl']
-                            )
-        print("  Extracting county data...")
-        dfHistCounty = dfHist[dfHist.county_desc == county_name.upper()]
-        #Save to file
-        print("  Saving to file...")
-        dfHistCounty.to_csv(save_filename,index=False)
-    #Summarize the voting history data to # elections per registrant
-    print("  Summarizing voter history data")
-    dfVoteCount = dfHistCounty['ncid'].value_counts().reset_index()
-    dfVoteCount.dropna(how='any',axis='rows',inplace=True)
-    dfVoteCount.columns = ['ncid','elections']
-
-    return dfVoteCount
 
 #%% main
 #Set the run time variables
@@ -480,7 +458,6 @@ state_voter_history_file = get_state_voter_history_file(NCSBE_folder)
 county_voter_history_file = get_county_voter_history_file(state_voter_history_file)
 
 print("  Summarize voting history for {} county".format(county_name))
-#dfVoterSummary = get_voter_history_data(state_voter_history_file,county_name,voter_history_file)
 dfVoterMECE = get_county_voter_MECE_data(county_voter_history_file,county_name)
 
 #Get the file of NC SBE address s for the state (if needed) and then the county subset
