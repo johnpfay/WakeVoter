@@ -15,10 +15,25 @@ Workflow:
     Part 1: Voting data
         Voter registration data, voting history, and address records are subset from the NC State
         Board of Elections (SBE) data files for the specified county. Addresses are joined to the 
-        registration data. Then voter history data is summarized to list the frequency of elections
-        in which the registrant voted, and is also joined to the registration data.  
-    
-    
+        registration data and the dataset is converted into a geospatial dataframe. Then voter 
+        history data is summarized to a MECE score and appended to the spatial dataframe. 
+        
+    Part 2: Census block data
+        Census block feature and attribute data are extracted from census servers and combined
+        so that each block includes the percent black and percent black over 18. This dataset
+        is spatially joined to the voting data features such that each voting record is tagged
+        with the census block in which it occurs as well as the block's %age black population.
+        
+    Part 3: Voting turf designation
+        Clusters of voters are grouped and assigned a unique "Turf ID" such that each turf:
+        -(mandatory) does not cross precinct lines
+        -(mandatory) majority Black
+        -(mandatory) At least 50 Black HH
+        -Geographically compact (easily walkable area)
+        -Practically compact (easily describable area 
+         -- e.g. 700-900 blocks of Burch Ave / keeps apartment buildings together)
+        -Less than 100 Black HH (this is less imprtant than having at least 50 Black HH)
+        -Have at least 2 Black voters who voted in the 2017 municipal election 
     
 Created: Summer 2019
 Creator: John.Fay@duke.edu
