@@ -529,11 +529,14 @@ dfMECE['Total']=dfMECE.iloc[:,0:5].sum(axis=1)
 # Join MECE counts to block features
 gdfBlocks2 = pd.merge(gdfBlocks,dfMECE,on='BLOCKID10',how='inner')
 
+# Subset blocks with at least two MECE 1 voters
+gdfBlocks3 = gdfBlocks2.loc[gdfBlocks2["MECE1"]>=2,:]
+gdfBlocks.shape
+
 # Compute number of black households
-gdfBlocks2['BlackHH'] = gdfBlocks2.HOUSING10 * gdfBlocks2.PctBlack / 100
-gdfBlocks3 = gdfBlocks2[gdfBlocks2.BlackHH >= 50]
+gdfBlocks3['BlackHH'] = gdfBlocks3.HOUSING10 * gdfBlocks3.PctBlack / 100
+gdfBlocks4 = gdfBlocks3[gdfBlocks3.BlackHH >= 50]
+gdfBlocks4.shape
 
 # Subset blocks with > 50 black households
 gdfBlocks2.to_file('{}\\BlockMece.shp'.format(COUNTY_folder)) 
-
-# Select
