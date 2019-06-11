@@ -325,6 +325,7 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
     #Compute percentages
     dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
     dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
+    dfData['BlackHH'] = dfData.HOUSING10 * dfData.PctBlack / 100
     #Set null values to zero
     dfData.fillna(0,inplace=True)
     #Remove GEOID component columns
@@ -437,7 +438,13 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
 state_fips = '37'
 county_fips  = '183'
 county_name = 'WAKE'
-NCSBE_folder ='.\\data\\NCSBE'
+
+#Set structure variables
+NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
+CENSUS_folder = '.\\data\\Census'  #Folder containign Census data
+
+#Create a folder to hold county data
+COUNTY_folder = '.\\data\\{}'.format(county_name)
 
 #Set the output filenames
 voter_shapefile_name = './scratch/wake_voters.shp'
@@ -445,44 +452,88 @@ voter_history_file = './scratch/wake_history.csv'
 block_shapefile_filename = './scratch/wake_blocks.shp'
 county_address_file = './scratch/wake_addresses.csv'
 
-#Get the Census API key
-censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
-
+#%% PART 1. GET AND PROCESS VOTING DATA
 #Get the NC SBE voter registration and history files for the county 
-print("  Getting voting registration data for {} county".format(county_name))
+print("1a. Getting voting registration data for {} county".format(county_name))
 state_voter_reg_file = get_state_voter_registation_file(NCSBE_folder)
 #county_voter_reg_file = get_county_voter_registation_file(state_voter_reg_file)
 
-print("  Getting voting history data for {} county".format(county_name))
+print("1b. Getting voting history data for {} county".format(county_name))
 state_voter_history_file = get_state_voter_history_file(NCSBE_folder)
 county_voter_history_file = get_county_voter_history_file(state_voter_history_file)
 
-print("  Summarize voting history for {} county".format(county_name))
+print("1c. Computing MECE scores for {} voters".format(county_name))
 dfVoterMECE = get_county_voter_MECE_data(county_voter_history_file,county_name)
 
 #Get the file of NC SBE address s for the state (if needed) and then the county subset
-print("  Getting address data for {} county".format(county_name))
+print("1d. Getting address data for {} county".format(county_name))
 county_address_file = get_county_address_file(county_name,NCSBE_folder)
 
 #Retrieve voter features
-print("  Getting voting data as features")
+print("1e. Converting voting data to spatial features")
 gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,voter_shapefile_name)
 
 #Append voter summary data
-print("  Appending voter history data to feature class")
-gdfVoter2 = pd.merge(gdfVoter,dfVoterMECE,how = 'left',left_on='ncid',right_on='ncid')
-gdfVoter2.loc[gdfVoter2.MECE.isnull(),"MECE"] = 5
-gdfVoter2.to_csv('./scratch/VoterXY.csv',index=False)
+print("1f. Appending voter MECE scores to voter features")
+gdfVoter = pd.merge(gdfVoter,dfVoterMECE,how = 'left',left_on='ncid',right_on='ncid')
+#Update records with no voting history as MECE = 5
+gdfVoter.loc[gdfVoter.MECE.isnull(),"MECE"] = 5
+
+
+#%% PART 2. CENSUS DATA
+#Get the Census API key
+print('2a. Getting the census API key')
+censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
 
 #Get the Census block features and attributes for the county
+print('2b. Fetching/reading census block features')
 if os.path.exists(block_shapefile_filename):
-    print("Reading block features from {}".format(block_shapefile_filename))
+    print("2c. Reading block features from {}".format(block_shapefile_filename))
     gdfBlocks = gpd.read_file(block_shapefile_filename)
 else:
-    print("Assembling block features from web resources...")
+    print("2c. Assembling block features from web resources...")
     gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
 
 #Join blocks to voter points
-dfVoter3 = gpd.sjoin(gdfVoter2,gdfBlocks,how='left',op='within')
-dfVoter3.to_file('./scratch/WakeVoterData2.shp')
+print('2d. Joining block data to voter features')
+gdfVoter = gpd.sjoin(gdfVoter,gdfBlocks,how='left',op='within')
 
+#Save the file
+outFile = '{}\\VoterFeatures.shp'.format(COUNTY_folder)
+print('2e. Saving output to {}. [Be patient...]'.format(outFile))
+gdfVoter.to_file(outFile,format='shapefile')
+
+#%% STEP 3. ASSIGN VOTER TURF VALUES TO VOTING POINTS
+
+# Subset Black voters in blocks with > 50% black
+mask_Voter = gdfVoter['race_code'] == 'B'
+mask_Block = gdfVoter['PctBlack'] >= 50
+gdfVoter2 = gdfVoter.loc[mask_Voter & mask_Block]
+outFile = '{}\\SubsetVoterFeatures.shp'.format(COUNTY_folder)
+gdfVoter2.to_file(outFile,format='shapefile')
+
+# Tally counts by MECE score in each block
+#List each block and the number of voters in each MECE
+dfMECE = (gdfVoter2.pivot_table(index='BLOCKID10',
+                                 columns='MECE',
+                                 aggfunc={'ncid':'count'})
+           .fillna(0)
+           .droplevel(0,axis=1)
+           .reset_index())
+dfMECE.columns = ['BLOCKID10','MECE1','MECE2','MECE3','MECE4','MECE5']
+dfMECE['Total']=dfMECE.iloc[:,0:5].sum(axis=1)
+
+#Remove blocks with fewer than 50 black households
+
+
+# Join MECE counts to block features
+gdfBlocks2 = pd.merge(gdfBlocks,dfMECE,on='BLOCKID10',how='inner')
+
+# Compute number of black households
+gdfBlocks2['BlackHH'] = gdfBlocks2.HOUSING10 * gdfBlocks2.PctBlack / 100
+gdfBlocks3 = gdfBlocks2[gdfBlocks2.BlackHH >= 50]
+
+# Subset blocks with > 50 black households
+gdfBlocks2.to_file('{}\\BlockMece.shp'.format(COUNTY_folder)) 
+
+# Select
