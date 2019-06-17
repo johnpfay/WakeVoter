@@ -108,14 +108,14 @@ def get_state_voter_history_file(NCSBE_folder,overwrite=False):
         print("   Statewide data stored as\n  [{}]".format(state_voter_history_file))
         return(state_voter_history_file)
 
-def get_county_voter_registation_file(state_registration_file):
+def Xget_county_voter_registation_file(state_registration_file):
     '''Returns the file name containing county voter registration data. This
     will create the file if it does not exist. 
     '''
     county_voter_reg_file = './data/WAKE/ncvoter_Wake.csv'
     return county_voter_reg_file
 
-def get_county_voter_history_file(state_history_file):
+def Xget_county_voter_history_file(state_history_file):
     '''Returns the file name containing county voter history data. This
     will download the file if it does not exist.
     '''
@@ -208,7 +208,7 @@ def get_state_address_file(NCSBE_folder):
         state_address_file = file_list[0]
         print(" Statewide address file found:\n  [{}]".format(state_address_file))
     else: #Otherwise retrieve the file from the NC SBE server
-        print(" Retrieving address file from NC SBE server...")
+        print(" Retrieving address file from NC SBE server [Be patient...]")
         fileURL = 'https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip'
         r = requests.get(fileURL)
         z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -253,17 +253,16 @@ def get_county_address_file(county_name, NCSBE_folder):
     with open(state_address_metadata,'r') as colFile:
         theText = colFile.readlines()
         columns = [theLine.split("\n")[0].split()[0] for theLine in theText[7:]]
-        print(columns)
     #Read in the data, using the metadata to supply column names
     dfState = pd.read_csv(state_address_file,sep='\t',dtype='str',
                           header=None,index_col=0,names = columns)
-    print("...{} statewide records loaded".format(dfState.shape[0]))
+    print("   ...{} statewide records loaded".format(dfState.shape[0]))
     #Extract Wake Co addresses and save
     dfCounty = dfState[dfState.county == county_name]
-    print("...{} county records extracted".format(dfCounty.shape[0]))
+    print("   ...{} county records extracted".format(dfCounty.shape[0]))
     #Save to a file
     county_address_file = state_address_file.replace('sboe.txt','{}.csv'.format(county_name))
-    print(" Country address file created:\n  [{}]".format(county_address_file))
+    print(" County address file created:\n  [{}]".format(county_address_file))
     dfCounty.to_csv(county_address_file,index=False)
     #Return the dataframe
     return county_address_file
@@ -502,12 +501,12 @@ county_address_file = '.\\data\\{}\\wake_addresses.csv'.format(county_name)
 
 #%% PART 1. GET AND PROCESS VOTING DATA
 #Get the NC SBE voter registration and history files for the county 
-print("1a. Getting voting registration data for {} county".format(county_name))
+print("1a. Getting statewide voting registration data".format(county_name))
 state_voter_reg_file = get_state_voter_registation_file(NCSBE_folder)
 
 print("1b. Getting voting history data for {} county".format(county_name))
 state_voter_history_file = get_state_voter_history_file(NCSBE_folder)
-county_voter_history_file = get_county_voter_history_file(state_voter_history_file)
+#county_voter_history_file = get_county_voter_history_file(state_voter_history_file)
 
 print("1c. Computing MECE scores for {} voters".format(county_name))
 dfVoterMECE = get_county_voter_MECE_data(state_voter_history_file,county_name)
