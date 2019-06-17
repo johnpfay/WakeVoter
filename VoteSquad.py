@@ -45,21 +45,30 @@ import geopandas as gpd
 from shapely import speedups
 speedups.enable()
 import os
-import requests
+import requests, zipfile, io, glob
 from datetime import datetime
 
 #%% FUNCTIONS
-def get_state_voter_registation_file(NCSBE_folder):
+def get_state_voter_registation_file(NCSBE_folder,overwrite=False):
     '''Returns the file name containing statewide voter registration data. This
-    will download the file if it does not exist.
+    will download the file if it does not exist (or overwrite is set to True)
+    
+    Args: 
+        NCSBE_folder(str): name of folder containing ncvoter_Statewide.txt file
+        overwrite(Boolean): whether or not to overwrite existing file (default=False)
+        
+    Returns:
+        filename of state voter registration file
     '''
-    state_voter_reg_file = './data/NCSBE/ncvoter_Statewide.txt'
-    if os.path.exists(state_voter_reg_file):
+    #Set the filename 
+    state_voter_reg_file = os.path.join(NCSBE_folder,'ncvoter_Statewide.txt')
+    #See if the file already exists
+    if os.path.exists(state_voter_reg_file) and not(overwrite):
+        print(" [{}] file already exists...".format(state_voter_reg_file))
         return state_voter_reg_file
     else:
-        import requests, zipfile, io, glob
         #Fetch and unzip the file
-        print(" Retrieving address file from NC SBE server...")
+        print(" Retrieving address file from NC SBE server [Be patient...]")
         fileURL = 'http://dl.ncsbe.gov/data/ncvoter_Statewide.zip'
         r = requests.get(fileURL)
         z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -70,19 +79,38 @@ def get_state_voter_registation_file(NCSBE_folder):
         print("   Statewide data stored as\n  [{}]".format(state_voter_reg_file))
         return(state_voter_reg_file)
 
-def get_state_voter_history_file(NCSBE_folder):
+def get_state_voter_history_file(NCSBE_folder,overwrite=False):
     '''Returns the file name containing statewide voter history data. This
     will download the file if it does not exist.
+        
+    Args: 
+        NCSBE_folder(str): name of folder containing ncvhis_Statewide.txt file
+        overwrite(Boolean): whether or not to overwrite existing file (default=False)
+        
+    Returns:
+        filename of state voter history file
     '''
-    state_voter_history_file = './data/NCSBE/ncvhis_Statewide.txt'
-    if not os.path.exists(state_voter_history_file):
-        print("{} not found.".format(state_voter_history_file))
-        return
-    return state_voter_history_file
+    state_voter_history_file = os.path.join(NCSBE_folder,'ncvhis_Statewide.txt')
+    if (os.path.exists(state_voter_history_file) and not(overwrite)):
+        print(" [{}] file already exists...".format(state_voter_history_file))
+        return state_voter_history_file
+    else:
+        #Fetch and unzip the file
+        print(" Retrieving address file from NC SBE server [Be patient...]")
+        return 
+        fileURL = 'http://dl.ncsbe.gov/data/ncvhis_Statewide.zip'
+        r = requests.get(fileURL)
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        print("   Unpacking data...")
+        z.extractall(NCSBE_folder)
+        #Get the file path
+        state_voter_history_file = glob.glob(NCSBE_folder+'/**/ncvhis_Statewide.txt',recursive=True)[0]
+        print("   Statewide data stored as\n  [{}]".format(state_voter_history_file))
+        return(state_voter_history_file)
 
 def get_county_voter_registation_file(state_registration_file):
     '''Returns the file name containing county voter registration data. This
-    will download the file if it does not exist.
+    will create the file if it does not exist. 
     '''
     county_voter_reg_file = './data/WAKE/ncvoter_Wake.csv'
     return county_voter_reg_file
@@ -476,7 +504,6 @@ county_address_file = '.\\data\\{}\\wake_addresses.csv'.format(county_name)
 #Get the NC SBE voter registration and history files for the county 
 print("1a. Getting voting registration data for {} county".format(county_name))
 state_voter_reg_file = get_state_voter_registation_file(NCSBE_folder)
-#county_voter_reg_file = get_county_voter_registation_file(state_voter_reg_file)
 
 print("1b. Getting voting history data for {} county".format(county_name))
 state_voter_history_file = get_state_voter_history_file(NCSBE_folder)
