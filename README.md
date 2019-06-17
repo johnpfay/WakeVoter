@@ -54,13 +54,17 @@ Address points
 
 ### 1. Extract and organize voting data for [Wake] county
 
-* Pull the voter data from the NC SBE servers
+* Pull the voter data from the NC SBE servers and subset for the selected county:
   * Manually download the [Statewide Voter Registration](http://dl.ncsbe.gov/data/ncvoter_Statewide.zip) and [Statewide Voter History](http://dl.ncsbe.gov/data/ncvhis_Statewide.zip) data sets to a local folder.
-  * Manually download the [NC Address Points](https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip) data file to a local folder.
-
-* Assemble a feature class of voting points for 
+    * _Will be replaces with code to download files from NCSBE servers..._
+* Run `get_county_voter_registration_file` to retrieve/build a county level registration csv file.
+  * Run `get_county_voter_history_file` to retrieve/build a county level registration csv file from the state file.
+  * Run `get_address_data()` to pull [NC Address Points](https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip) data file to a local folder.
+  
+* Assemble a feature class of voting points for the county
   * Run `get_voter_data()` to select voting records for a specific county and assemble them into a shapefile.
-  * Run 
+    * This uses the address file to attach coordinates to voter registration data
+  * 
 
 ### 1. Identify census block groups with > 50% black voters
 
