@@ -284,6 +284,7 @@ def get_block_features(st_fips,co_fips,output_shapefile,api_key):
     Args:
         st_fips(str): State FIPS code (e.g. '37')
         co_fips(str): County FIPS code (e.g. '183')
+        df_attributes(dataframe): dataframe of block attributes
         output_shapefile(str)[optional]: Name to save output shapefile
         api_key(str): Census API key
         
@@ -291,19 +292,21 @@ def get_block_features(st_fips,co_fips,output_shapefile,api_key):
         Geodataframe of census blocks for the county with race data
     '''
     #Pull the state block data for the supplied FIPS code
-    print("Downloading blocks for {}; this take a few minutes...".format(st_fips))
+    print("   Downloading blocks for state FIPS {}; this take a few minutes...".format(st_fips))
     dataURL = 'https://www2.census.gov/geo/tiger/TIGER2010BLKPOPHU/tabblock2010_{}_pophu.zip'.format(st_fips)
     fcStBlocks = gpd.read_file(dataURL)
     
     #Subset county blocks
-    print("Subsetting data for County FIPS ".format(co_fips))
+    print("   Subsetting data for County FIPS {} ".format(co_fips))
     fcCoBlocks = fcStBlocks[fcStBlocks.COUNTYFP10 == co_fips]
     
     #Retrieve block attribute data
-    dfAttribs = get_block_attributes(st_fips,co_fips,'',api_key)
+    print("   Fetching block attribute data")
+    dfAttribs = get_block_attributes(st_fips,co_fips,api_key)
     fcCoBlocks =  pd.merge(left=fcCoBlocks,left_on='BLOCKID10',
                            right=dfAttribs,right_on='GEOID10',
                            how='outer')
+    
     
     #If no output name is given, just return the geodataframe
     if output_shapefile == '': return fcCoBlocks
@@ -331,7 +334,7 @@ def get_block_features(st_fips,co_fips,output_shapefile,api_key):
     #Return the geodataframe
     return fcCoBlocks
         
-def get_block_attributes(st_fips,co_fips,output_csv,api_key):
+def get_block_attributes(st_fips,co_fips,api_key):
     '''Retrieves race composition data using the Census API
     
     Description: Pulls the following block level data from the 2010 SF1 file:
@@ -358,11 +361,11 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
               'key':api_key
          }
     #Send the request and convert the response to JSON format
-    print("...downloading data from {}")
+    print("   ...downloading data from {}".format(theURL))
     response = requests.get(theURL,params) 
     response_json = response.json()
     #Convert JSON to pandas dataframe
-    print("...cleaning data...")
+    print("   ...cleaning data...")
     dfData = pd.DataFrame(response_json[1:],columns=response_json[0])
     #Convert block data columns to numeric
     floatColumns = ['P003001','P003003','P010001','P010004']
@@ -372,19 +375,16 @@ def get_block_attributes(st_fips,co_fips,output_csv,api_key):
     #Compute percentages
     dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
     dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
-    dfData['BlackHH'] = dfData.HOUSING10 * dfData.PctBlack / 100
+
     #Set null values to zero
     dfData.fillna(0,inplace=True)
     #Remove GEOID component columns
     dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
-    #Export the relevant columns to a csv file, if a name is given
-    if output_csv:
-        print("...saving data to {}".format(output_csv))
-        dfData.to_csv(output_csv,index=False)
+
     #Return the dataframe
     return dfData
     
-def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite=False):
+def get_voter_data(data_file, address_file, county_name, out_shapefile, overwrite=False):
     '''Creates a geocoded feature class of voters within the selected county.
     
     Description:
@@ -403,7 +403,7 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     '''
     #See if the output already exists (and if overwrite is False); if so, create a geodataframe
     if os.path.exists(out_shapefile) and not overwrite:
-        print("Output shapefile exists.\nCreating geodata dataframe from {}".format(out_shapefile))
+        print("Output shapefile exists.\nCreating geodata dataframe from {}\n[Be patient...]".format(out_shapefile))
         gdfBlocks = gpd.read_file(out_shapefile)
         return(gdfBlocks
                )
@@ -435,12 +435,12 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     dfCounty['res_street_address'] = dfCounty['res_street_address'].apply(lambda x: ' '.join(x.split()))
     
     #Read address file into a dataframe
-    print("Reading in address file...")
+    print("   Reading in address file...")
     dfAddresses = pd.read_csv(address_file,
                               usecols=['st_address','city','zip','latitude','longitude'])
     
     #Join coords to dfVoter
-    print("Joining address to voter data")
+    print("   Joining address to voter data")
     dfX = pd.merge(left=dfCounty,
                    left_on=['res_street_address','res_city_desc','zip_code'],
                    right=dfAddresses,
@@ -450,7 +450,7 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     dfX.dropna(axis=0,subset=['longitude','latitude'],inplace=True)
     
     #Convert to geodataframe
-    print("Converting to spatial dataframe")
+    print("   Converting to spatial dataframe")
     from shapely.geometry import Point
     geom = [Point(x,y) for x,y in zip(dfX.longitude,dfX.latitude)]
     gdfVoter = gpd.GeoDataFrame(dfX,geometry=geom,crs={'init':'epsg:4269'})
@@ -459,7 +459,7 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
     if out_shapefile == '': return gdfVoter
     
     #Otherwise, save to a file
-    print("Saving to {}".format(out_shapefile))
+    print("  Saving to {} [Be patient...]".format(out_shapefile))
     gdfVoter.to_file(out_shapefile,filetype='Shapefile')
     
     #Write projection to .prj file
@@ -477,6 +477,7 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile,overwrite
         outTxt.write('NC SBE: https://www.ncsbe.gov/data-stats/other-election-related-data\n')
         outTxt.write('File created on {}'.format(current_date))
     
+    print("[Spatial dataframe now stored as 'gdfVoter']")
     return gdfVoter
 
 
@@ -494,10 +495,8 @@ CENSUS_folder = '.\\data\\Census'  #Folder containign Census data
 COUNTY_folder = '.\\data\\{}'.format(county_name)
 
 #Set the output filenames
-voter_shapefile_name = '.\\data\\{}\\wake_voters.shp'.format(county_name)
-voter_history_file = '.\\data\\{}\\wake_history.csv'.format(county_name)
-block_shapefile_filename = '.\\data\\{}\\wake_blocks.shp'.format(county_name)
-county_address_file = '.\\data\\{}\\wake_addresses.csv'.format(county_name)
+voter_shapefile_name = os.path.join(COUNTY_folder,'{}_voter_points.shp'.format(county_name))
+block_shapefile_filename = os.path.join(COUNTY_folder,'{}_blocks.shp'.format(county_name))
 
 #%% PART 1. GET AND PROCESS VOTING DATA
 #Get the NC SBE voter registration and history files for the county 
@@ -529,7 +528,7 @@ gdfVoter.loc[gdfVoter.MECE.isnull(),"MECE"] = 5
 #%% PART 2. CENSUS DATA
 #Get the Census API key
 print('2a. Getting the census API key')
-censusKey = pd.read_csv('{}/APIkeys.csv'.format(os.environ['localappdata'])).iloc[0,1]
+censusKey = open("APIkey.txt","r").readline()
 
 #Get the Census block features and attributes for the county
 print('2b. Fetching/reading census block features')
@@ -539,17 +538,26 @@ if os.path.exists(block_shapefile_filename):
 else:
     print("2c. Assembling block features from web resources...")
     gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
+#Add field for number of black households
+gdfBlocks['BlackHH'] = gdfBlocks.HOUSING10 * gdfBlocks.PctBlack / 100
 
 #Join blocks to voter points
 print('2d. Joining block data to voter features')
 gdfVoter = gpd.sjoin(gdfVoter,gdfBlocks,how='left',op='within')
 
-#Save the file
+#Save the to file containing voter point features that include voter history
+# and data on the block in which the voter is located.
 outFile = '{}\\VoterFeatures.shp'.format(COUNTY_folder)
 print('2e. Saving output to {}. [Be patient...]'.format(outFile))
 gdfVoter.to_file(outFile,format='shapefile')
 
 #%% STEP 3. ASSIGN VOTER TURF VALUES TO VOTING POINTS
+# Organizational units are areas managed by one or two 'super voters'.
+# These areas should:
+#  (1) have need, defined as having a certian number of black voters
+#  (2) have leaders, defined as having two "MECE 1" voters
+#  (3) be of manageable size, defined as fewer than 100 households
+#  (4) 
 
 # Subset Black voters in blocks with > 50% black
 mask_Voter = gdfVoter['race_code'] == 'B'
@@ -567,7 +575,10 @@ dfMECE = (gdfVoter2.pivot_table(index='BLOCKID10',
            .droplevel(0,axis=1)
            .reset_index())
 dfMECE.columns = ['BLOCKID10','MECE1','MECE2','MECE3','MECE4','MECE5']
+#Compute total voters in the block
 dfMECE['Total']=dfMECE.iloc[:,0:5].sum(axis=1)
+#Add block group attribute
+dfMECE['BlkGrp']=dfMECE['BLOCKID10'].apply(lambda x: x[:-4])
 
 #Remove blocks with fewer than 50 black households
 
@@ -580,9 +591,29 @@ gdfBlocks3 = gdfBlocks2.loc[gdfBlocks2["MECE1"]>=2,:]
 gdfBlocks.shape
 
 # Compute number of black households
-gdfBlocks3['BlackHH'] = gdfBlocks3.HOUSING10 * gdfBlocks3.PctBlack / 100
+#gdfBlocks3['BlackHH'] = gdfBlocks3.HOUSING10 * gdfBlocks3.PctBlack / 100
 gdfBlocks4 = gdfBlocks3[gdfBlocks3.BlackHH >= 50]
 gdfBlocks4.shape
 
 # Subset blocks with > 50 black households
-gdfBlocks2.to_file('{}\\BlockMece.shp'.format(COUNTY_folder)) 
+gdfBlocks2.to_file('{}\\BlockMece2.shp'.format(COUNTY_folder)) 
+#%% Set Org Units
+
+#Subset blocks with fewer than 50 black households
+fcBlocksSubset  = gdfBlocks2[(gdfBlocks2.BlackHH < 50) & (gdfBlocks2.BlackHH > 10)].reset_index()
+#Dissolve adjacent blocks
+fcClusters = gpd.GeoDataFrame(geometry = list(fcBlocksSubset.unary_union))
+#Add a static ID field to the geodataframe
+fcClusters['ID'] = fcClusters.index
+#Copy over crs to new file
+fcClusters.crs = fcBlocksSubset.crs
+
+#Spatially join the dissolved ID to the subset blocks layer
+fcBlockSubset2 = gpd.sjoin(fcBlocksSubset,fcClusters,how='left',op='within').drop("index_right",axis=1)
+#Initialize the field to contain new organizational unit IDs
+fcBlockSubset2['OrgID'] = 0
+
+#Spatially join the dissolved ID to the subset blocks layer
+fcBlockSubset2 = gpd.sjoin(fcBlocksSubset,fcClusters,how='left',op='within').drop("index_right",axis=1)
+#Initialize the field to contain new organizational unit IDs
+fcBlockSubset2['OrgID'] = 0
