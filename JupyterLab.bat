@@ -1,1 +1,0 @@
-%localappdata%\ESRI\conda\envs\votesquad\scripts\jupyter-lab.exe --notebook-dir=%cd%
