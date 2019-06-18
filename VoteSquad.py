@@ -217,7 +217,7 @@ def get_state_address_file(NCSBE_folder):
         #Get the file path
         state_address_file = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)[0]
         print("   Statewide data stored as\n  [{}]".format(state_address_file))
-        return(state_address_file)
+    return(state_address_file)
 
 
 def get_county_address_file(county_name, NCSBE_folder):
@@ -617,3 +617,58 @@ fcBlockSubset2['OrgID'] = 0
 fcBlockSubset2 = gpd.sjoin(fcBlocksSubset,fcClusters,how='left',op='within').drop("index_right",axis=1)
 #Initialize the field to contain new organizational unit IDs
 fcBlockSubset2['OrgID'] = 0
+
+#Compute total BHH for the dissolved blocks and add as attribute to bloc
+sumHH = fcBlockSubset2.groupby('ID').agg({'BlackHH':'sum'})
+#Join total aggregate BHH to the cluster geoframe
+fcClusters2=pd.merge(fcClusters,sumHH,left_index=True,right_index=True)
+
+#Save clusters with between 50 and 100 HH to a a new geoframe
+fcClusters_keep1 = fcClusters2[(fcClusters2.BlackHH > 50) & (fcClusters2.BlackHH <= 100)].reset_index()
+
+#Find IDs of dissolved blocks with HH > 100
+fcTooBig = fcClusters2.query('BlackHH > 100')
+
+#Iterate through each cluster (that has more than 100 BHH)
+for idx in fcTooBig.ID:
+    #Get the cluster ID
+    clusterID = fcTooBig.loc[idx,"ID"]
+    #Get the blocks with that ID
+    fcCBlocks = fcBlockSubset2[(fcBlockSubset2.ID == clusterID) & (fcBlockSubset2.OrgID == 0)].reset_index()
+    
+    #Add the X coordinate as a column
+    fcCBlocks['X'] = fcCBlocks.geometry.centroid.x
+    
+    #Start with the feat with the min X
+    fcNbrs = fcCBlocks[fcCBlocks.X == fcCBlocks.X.max()]
+    
+    #Get the number of aggregate BGG in the selection
+    BHH = fcNbrs.BlackHH.sum()
+    geom = fcNbrs.geometry.unary_union
+
+    #Increase the selection 
+    iterX = 0 #Catch to avoid infinite loops
+    while BHH < 100 and iterX < 100: 
+        #Find the blocks that touch
+        fcNbrs = fcBlockSubset2[(fcBlockSubset2.intersects(geom)) & #Select blocks that are adjacent
+                                (fcBlockSubset2.BlackHH < 50) &     #...that have fewer than 50 BHH
+                                (fcBlockSubset2.BlackHH > 10)       #...but have at least 10 BHH
+                               ]
+        BHH = fcNbrs.BlackHH.sum()
+        geom = fcNbrs.geometry.unary_union
+        iterX += 1
+
+    #Select blocks and assign its OrgID
+    fcBlockSubset2.loc[fcBlockSubset2.intersects(geom),'OrgID'] = idx+1000
+
+#Select clusters that have been identified above and dissolve them, summing the BHHs
+fcClusters_keep2 = fcBlockSubset2.query('OrgID > 1000').dissolve(by='OrgID',aggfunc={'BlackHH':'sum'})
+#Update the index field
+fcClusters_keep2['ID']=fcClusters_keep2.index
+#Append to the clusters that already have between 50 and 100 BHH
+fcAll1 = fcClusters_keep1.append(fcClusters_keep2,ignore_index=True,sort=False).reset_index()
+#Append to original blocks (with more than 50 BHH)
+fcOrig = gdfBlocks2.loc[gdfBlocks2['BlackHH']>50,['BlackHH','geometry']]
+fcOrig['ID'] = fcOrig.index
+fcAll2 = fcOrig.append([fcClusters_keep1,fcClusters_keep2],ignore_index=True,sort=False).reset_index()
+fcAll2.to_file(os.path.join(COUNTY_folder,'OrgUnits.shp'))
