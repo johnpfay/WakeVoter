@@ -16,3 +16,6 @@ data/orgUnits_wake.xlsx
 GIS/Index/*
 GIS/*.gdb/*
 GIS/ImportLog/*
+
+data/WAKE/*
+data/DURHAM/*
