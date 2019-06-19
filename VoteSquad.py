@@ -241,7 +241,7 @@ def get_county_address_file(county_name, NCSBE_folder):
     file_list = glob.glob(NCSBE_folder+'/**/address_points_{}.csv'.format(county_name),recursive=True)
     if len(file_list) > 0:
         county_address_file = file_list[0]
-        print(" Found country address file:\n  [{}]".format(county_address_file))
+        print(" Found county address file:\n  [{}]".format(county_address_file))
         return county_address_file
     else: 
         print(" Building country address file...")
@@ -387,7 +387,7 @@ def get_block_attributes(st_fips,co_fips,api_key):
     #Return the dataframe
     return dfData
     
-def get_voter_data(data_file, address_file, county_name, out_shapefile, overwrite=False):
+def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, overwrite=False):
     '''Creates a geocoded feature class of voters within the selected county.
     
     Description:
@@ -400,16 +400,18 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile, overwrit
         data_file(str): Path to local, unzipped voter registration database
         address_file(str): Path to local, unzipped address points file
         county_name(str): Name of county to extract
+        dfMECE(dataframe): dataframe of Voter MECE scores
         out_shapefile(str): Name of shapefile in which to save the output
     Returns: 
         geodataframe of addresses
     '''
     #See if the output already exists (and if overwrite is False); if so, create a geodataframe
     if os.path.exists(out_shapefile) and not overwrite:
-        print("Output shapefile exists.\nCreating geodata dataframe from {}\n[Be patient...]".format(out_shapefile))
+        print("Output shapefile exists.")
+        print("  Creating geodata dataframe from {}\n  [Be patient...]".format(out_shapefile))
         gdfBlocks = gpd.read_file(out_shapefile)
-        return(gdfBlocks
-               )
+        return(gdfBlocks)
+        
     #Othersiwse read in all the voter registration data
     print("  Reading in the voter registration data file...")
     dfAll = pd.read_csv(data_file,
@@ -417,7 +419,7 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile, overwrit
                              'res_city_desc','state_cd','zip_code','precinct_abbrv','race_code',
                              'ethnic_code','gender_code','party_cd','ncid'],
                     sep='\t',
-                    encoding = "ISO-8859-1")
+                    encoding = "ISO-8859-1",low_memory=False)
     
     #Select records for the provided county name - into a new dataframe
     print("  Selecting records for {} county...".format(county_name),end='')
@@ -452,11 +454,16 @@ def get_voter_data(data_file, address_file, county_name, out_shapefile, overwrit
     #Drop records that weren't geocoded
     dfX.dropna(axis=0,subset=['longitude','latitude'],inplace=True)
     
+    print("  Appending voter MECE scores to voter features")
+    dfX2 = pd.merge(dfX,dfMECE,how = 'left',left_on='ncid',right_on='ncid')
+    #Update records with no voting history as MECE = 5
+    dfX2.loc[dfX2.MECE.isnull(),"MECE"] = 5
+    
     #Convert to geodataframe
     print("   Converting to spatial dataframe")
     from shapely.geometry import Point
-    geom = [Point(x,y) for x,y in zip(dfX.longitude,dfX.latitude)]
-    gdfVoter = gpd.GeoDataFrame(dfX,geometry=geom,crs={'init':'epsg:4269'})
+    geom = [Point(x,y) for x,y in zip(dfX2.longitude,dfX.latitude)]
+    gdfVoter = gpd.GeoDataFrame(dfX2,geometry=geom,crs={'init':'epsg:4269'})
     
     #Save the geodataframe
     if out_shapefile == '': return gdfVoter
@@ -496,6 +503,8 @@ CENSUS_folder = '.\\data\\Census'  #Folder containign Census data
 
 #Create a folder to hold county data
 COUNTY_folder = '.\\data\\{}'.format(county_name)
+if not(os.path.exists(COUNTY_folder)):
+    os.mkdir(COUNTY_folder)
 
 #Set the output filenames
 voter_shapefile_name = os.path.join(COUNTY_folder,'{}_voter_points.shp'.format(county_name))
@@ -519,13 +528,16 @@ county_address_file = get_county_address_file(county_name,NCSBE_folder)
 
 #Retrieve voter features
 print("1e. Converting voting data to spatial features")
-gdfVoter = get_voter_data(state_voter_reg_file,county_address_file,county_name,voter_shapefile_name)
+gdfVoter = get_voter_data(state_voter_reg_file,
+                          county_address_file,
+                          county_name,
+                          dfVoterMECE,"")
 
 #Append voter summary data
-print("1f. Appending voter MECE scores to voter features")
-gdfVoter = pd.merge(gdfVoter,dfVoterMECE,how = 'left',left_on='ncid',right_on='ncid')
+#print("1f. Appending voter MECE scores to voter features")
+#gdfVoter = pd.merge(gdfVoter,dfVoterMECE,how = 'left',left_on='ncid',right_on='ncid')
 #Update records with no voting history as MECE = 5
-gdfVoter.loc[gdfVoter.MECE.isnull(),"MECE"] = 5
+#gdfVoter.loc[gdfVoter.MECE.isnull(),"MECE"] = 5
 
 
 #%% PART 2. CENSUS DATA
