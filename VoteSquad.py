@@ -34,6 +34,9 @@ Workflow:
          -- e.g. 700-900 blocks of Burch Ave / keeps apartment buildings together)
         -Less than 100 Black HH (this is less imprtant than having at least 50 Black HH)
         -Have at least 2 Black voters who voted in the 2017 municipal election 
+        
+Requirements: 
+    Census API key, saved as APIKey.txt in the project folder.
     
 Created: Summer 2019
 Creator: John.Fay@duke.edu
