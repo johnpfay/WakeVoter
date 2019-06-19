@@ -708,11 +708,9 @@ fcClusters2=pd.merge(fcClusters,sumHH,left_index=True,right_index=True)
 #Save clusters with between 50 and 100 HH to a a new geoframe; these clusters can be kept 
 # as is as new org units. 
 fcClusters_keep1 = fcClusters2[(fcClusters2.BlackHH > 50) & (fcClusters2.BlackHH <= 100)].reset_index()
-fcClusters_keep1.to_file('./data/WAKE/keep1.shp')
 
 #Find IDs of dissolved blocks with HH > 100; these must be processed into smaller org units
 fcTooBig = fcClusters2.query('BlackHH > 100')
-fcTooBig.to_file('./data/WAKE/Clusters.shp')
 
 #Iterate through each cluster (that has more than 100 BHH)
 for idx in fcTooBig.ID:
@@ -757,7 +755,7 @@ fcClusters_keep2['ID']=fcClusters_keep2.index
 
 #Append to the clusters that already have between 50 and 100 BHH
 fcAll1 = fcClusters_keep1.append(fcClusters_keep2,ignore_index=True,sort=False).reset_index()
-fcAll1.to_file('./data/WAKE/ALL1.shp')
+
 #Append to original blocks (with more than 50 BHH)
 fcOrig = gdfBlocks2.loc[gdfBlocks2['BlackHH']>50,['BlackHH','geometry']]
 fcOrig['ID'] = fcOrig.index
@@ -768,8 +766,7 @@ fcAll2.drop('level_0',axis=1,inplace=True)
 fcAll2.to_file(orgunits_shapefile_filename)
 #Write metadata
 orgunits_metadata_filename = orgunits_shapefile_filename[:-4]+'.txt'
-with open(orgunits_metadata_filename,'r') as meta:
+with open(orgunits_metadata_filename,'w') as meta:
     meta.write('''Organizational Voting Units.
-               These are Census blocks that are majority black and have at least 50 black households (BHH).
-               Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.
-               ''')
+These are Census blocks that are majority black and have at least 50 black households (BHH).
+Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.''')
