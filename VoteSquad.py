@@ -111,23 +111,6 @@ def get_state_voter_history_file(NCSBE_folder,overwrite=False):
         print("   Statewide data stored as\n  [{}]".format(state_voter_history_file))
         return(state_voter_history_file)
 
-def Xget_county_voter_registation_file(state_registration_file):
-    '''Returns the file name containing county voter registration data. This
-    will create the file if it does not exist. 
-    '''
-    county_voter_reg_file = './data/WAKE/ncvoter_Wake.csv'
-    return county_voter_reg_file
-
-def Xget_county_voter_history_file(state_history_file):
-    '''Returns the file name containing county voter history data. This
-    will download the file if it does not exist.
-    '''
-    county_voter_history_file = './data/WAKE/ncvhis_Wake.csv'
-    if not os.path.exists(county_voter_history_file):
-        print("{} not found.".format(county_voter_history_file))
-        return
-    return county_voter_history_file
-
 def get_county_voter_MECE_data(state_history_file, county_name):
     '''Returns a dataframe of MECE tags for each voter in the county
     
@@ -532,12 +515,6 @@ gdfVoter = get_voter_data(state_voter_reg_file,
                           county_address_file,
                           county_name,
                           dfVoterMECE,"")
-
-#Append voter summary data
-#print("1f. Appending voter MECE scores to voter features")
-#gdfVoter = pd.merge(gdfVoter,dfVoterMECE,how = 'left',left_on='ncid',right_on='ncid')
-#Update records with no voting history as MECE = 5
-#gdfVoter.loc[gdfVoter.MECE.isnull(),"MECE"] = 5
 
 
 #%% PART 2. CENSUS DATA
