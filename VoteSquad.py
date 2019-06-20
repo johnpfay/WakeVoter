@@ -441,7 +441,7 @@ def get_block_features(st_fips,co_fips,output_shapefile,api_key):
                      '\tP010001 - Total population 18 years and older\n' +
                      '\tP010004 - Total Black/African-American population 18 years or older\n\n')
         outTxt.write('[PctBlack] computed as [P003003] / [P003001] * 100)\n')
-        outTxt.write('[PctBlack18] computed as [P010003] / [P010001] * 100)\n')
+        outTxt.write('[PctBlack18] computed as [P010004] / [P010001] * 100)\n')
         outTxt.write('[BlackHH] computed as [HOUSING10] * [PctBlack]), rounded to the nearest integer')
         
     #Return the geodataframe
@@ -600,8 +600,8 @@ def tally_block_MECE_scores(gdf_voter):
 #%% main
 #Set the run time variables
 state_fips = '37'
-county_fips  = '183'
-county_name = 'WAKE'
+county_fips  = '163'
+county_name = 'DURHAM'
 
 #Set structure variables
 NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
@@ -686,87 +686,115 @@ gdfBlocks4.shape
 
 #%% Set Org Units
 
-#Subset blocks with fewer than 50 black households but at least 10
-fcBlocksSubset  = gdfBlocks2[(gdfBlocks2.BlackHH <= 50) & (gdfBlocks2.BlackHH >= 10)].reset_index()
-#Dissolve adjacent blocks into "block clusters"
-fcClusters = gpd.GeoDataFrame(geometry = list(fcBlocksSubset.unary_union))
-#Add a static ID field to the geodataframe
-fcClusters['ID'] = fcClusters.index
-#Copy over crs to new file
-fcClusters.crs = fcBlocksSubset.crs
+#Select blocks that are majority black
+gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
 
-#Spatially join the dissolved ID to the subset blocks layer
-fcBlockSubset2 = gpd.sjoin(fcBlocksSubset,fcClusters,how='left',op='within').drop("index_right",axis=1)
-#Initialize the field to contain new organizational unit IDs
-fcBlockSubset2['OrgID'] = 0
+#Of those, select blocks that have at least 50 BHH, these we'll keep (1)
+gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
+gdf_Org1.drop(['index', 'STATEFP10', 'COUNTYFP10', 
+               'TRACTCE10', 'BLOCKCE', 'BLOCKID10',
+               'GEOID10','PARTFLG'],axis=1,inplace=True)
+gdf_Org1['OrgID'] = gdf_Org1.index + 1
+gdf_Org1['OrgType'] = 'OriginalBlock'
 
-#Compute total BHH for the dissolved blocks and add as attribute to bloc
-sumHH = fcBlockSubset2.groupby('ID').agg({'BlackHH':'sum'})
-#Join total aggregate BHH to the cluster geoframe
-fcClusters2=pd.merge(fcClusters,sumHH,left_index=True,right_index=True)
+#Of those, select blocks that have fewer than 50 BHH; these we'll cluster
+gdfMajBlack_LT50 = gdfMajBlack.query('BlackHH < 50')
 
-#Save clusters with between 50 and 100 HH to a a new geoframe; these clusters can be kept 
-# as is as new org units. 
-fcClusters_keep1 = fcClusters2[(fcClusters2.BlackHH > 50) & (fcClusters2.BlackHH <= 100)].reset_index()
+#Cluster
+gdfClusters = gpd.GeoDataFrame(geometry = list(gdfMajBlack_LT50.unary_union))
+gdfClusters['ClusterID'] = gdfClusters.index
+gdfClusters.crs = gdfMajBlack_LT50.crs
 
-#Find IDs of dissolved blocks with HH > 100; these must be processed into smaller org units
-fcTooBig = fcClusters2.query('BlackHH > 100')
+#Spatially join the cluster ID to the original blocks
+gdfMajBlack_LT50_2 = gpd.sjoin(gdfMajBlack_LT50,gdfClusters,
+                               how='left',op='within').drop("index_right",axis=1)
 
-#Iterate through each cluster (that has more than 100 BHH)
-for idx in fcTooBig.ID:
-    #Get the cluster ID
-    clusterID = fcTooBig.loc[idx,"ID"]
+#Compute the total BHH for the dissolved blocks and add as block attribute
+gdfClusters_2 = gdfMajBlack_LT50_2.dissolve(by='ClusterID', aggfunc='sum')
+gdfClusters_2['PctBlack'] = gdfClusters_2['P003003'] / gdfClusters_2['P003001'] * 100
+gdfClusters_2['PctBlack18'] = gdfClusters_2['P010004'] / gdfClusters_2['P010001'] * 100
+
+#Remove block clusters with fewer than 50 BHH; these are impractical
+gdfClusters_2 = gdfClusters_2.query('BlackHH >= 50')
+
+#Select clusters with fewer than 100 BHH, these we'll keep as org units(2)
+gdf_Org2 = gdfClusters_2.query('BlackHH <= 100').reset_index()
+gdf_Org2['OrgID'] = gdf_Org1['OrgID'].max() + gdf_Org2.index + 1
+gdf_Org2['OrgType'] = 'Full block cluster'
+
+#Get a list of Cluster IDs for block clusters with more than 100 BHH;
+# we'll cluster individual blocks with these IDs until BHH >= 100
+clusterIDs = gdfClusters_2.query('BlackHH > 100').index.unique()
+
+#Iterate through each clusterID
+gdfs = []
+for clusterID in clusterIDs:
+    #Get all the blocks in the selected cluster
+    gdfBlksAll = gdfMajBlack_LT50_2.query('ClusterID == {}'.format(clusterID)).reset_index()
+
+    #Assign the X coordinate, used to select the first feature in a sub-cluster
+    gdfBlksAll['X'] = gdfBlksAll.geometry.centroid.x
+    #Set all blocks to "unclaimed"
+    gdfBlksAll['claimed'] = 0
+    #Determine how many blocks are unclaimed
+    unclaimedCount = gdfBlksAll.query('claimed == 0')['X'].count()
+    #Initialize the loop catch variable
+    stopLoop = 0 
+    #Run until all blocks have been "claimed"
+    while unclaimedCount > 0:
+        
+        #Extract all unclaimed blocks
+        gdfBlks = gdfBlksAll[gdfBlksAll.claimed == 0].reset_index()
+
+        #Get the initial block (the western most one); get its BHH and geometry
+        gdfBlock = gdfBlks[gdfBlks.X == gdfBlks.X.min()]
+        BHH = gdfBlock.BlackHH.sum()
+        geom = gdfBlock.geometry.unary_union
+        
+        #Expand the geometry until 100 BHH are found
+        stopLoop2 = 0 #Loop break check
+        while BHH < 100:
+            #Select unclaimed blocks that within the area
+            gdfNbrs = gdfBlksAll[(gdfBlksAll.touches(geom))]
+            gdfBoth = pd.concat((gdfBlock,gdfNbrs),axis='rows',sort=False)
+            gdfBlock = gdfBoth.copy(deep=True)
+            #Tally the BHHs in the area and update the area shape
+            BHH = gdfBoth.BlackHH.sum()
+            geom = gdfBoth.geometry.unary_union
+            #Catch if run 100 times without getting to 100 BHH
+            stopLoop2 += 1
+            if stopLoop2 > 100: 
+                print("BHH never reached 100")
+                break
+                
+        #Extract features intersecting the geometry to a new dataframe
+        gdfSelect = (gdfBlksAll[(gdfBlksAll.centroid.within(geom)) & 
+                                (gdfBlksAll.claimed == 0) 
+                               ]
+                 .reset_index()
+                 .dissolve(by='ClusterID', aggfunc='sum')
+                 .drop(['level_0','index','X'],axis=1)
+                )
+        
+        #Set all features intersecting the shape as "claimed"
+        gdfBlksAll.loc[gdfBlksAll.geometry.centroid.within(geom),'claimed'] = 1
+        unclaimedCount = gdfBlksAll.query('claimed == 0')['X'].count()
+
+        #Add the dataframe to the list of datarames
+        gdfs.append(gdfSelect[gdfSelect['BlackHH'] >= 50])    
+        
+        #Stop the loop if run for over 100 iterations
+        stopLoop += 1
+        if stopLoop > 100: break
     
-    #Get the blocks with that Cluster ID, i.e. belonging to that cluster
-    fcCBlocks = fcBlockSubset2[(fcBlockSubset2.ID == clusterID) & (fcBlockSubset2.OrgID == 0)].reset_index()
-    
-    #Add the X coordinate as a column
-    fcCBlocks['X'] = fcCBlocks.geometry.centroid.x
-    
-    #Start with the feat with the min X
-    fcNbrs = fcCBlocks[fcCBlocks.X == fcCBlocks.X.min()]
-    
-    #Get the number of aggregate BGG in the selection
-    BHH = fcNbrs.BlackHH.sum()
-    #Get the geometry associated with that selection
-    geom = fcNbrs.geometry.unary_union
+#Concat these to a new geodataframe
+gdf_Org3 = pd.concat(gdfs,sort=False)
+gdf_Org3['PctBlack'] = gdf_Org3['P003003'] / gdf_Org3['P003001'] * 100
+gdf_Org3['PctBlack18'] = gdf_Org3['P010004'] / gdf_Org3['P010001'] * 100
+gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
+gdf_Org3['OrgType'] = 'Partial block cluster'
+gdf_Org3.drop(['claimed'],axis=1)
 
-    #Increase the selection until 100 BHH are reached
-    iterX = 0 #Catch to avoid infinite loops
-    while BHH < 100 and iterX < 100: 
-        #Find the blocks that touch
-        fcNbrs = fcBlockSubset2[fcBlockSubset2.intersects(geom)] #Select blocks that are adjacent
-        #Compute the new aggregate BHH and geometry
-        BHH = fcNbrs.BlackHH.sum()
-        geom = fcNbrs.geometry.unary_union
-        iterX += 1
-        if iterX >= 100: print(idx, fcNbrs.shape[0],BHH,"loop trap!")
-
-    #Select blocks and assign its OrgID
-    fcBlockSubset2.loc[fcBlockSubset2.intersects(geom),'OrgID'] = idx+1000
-
-#fcBlockSubset2.to_file('./data/WAKE/BlockSubset2.shp')
-
-#Select clusters that have been identified above and dissolve them, summing the BHHs
-fcClusters_keep2 = fcBlockSubset2.query('OrgID > 1000').dissolve(by='OrgID',aggfunc={'BlackHH':'sum'})
-#Update the index field
-fcClusters_keep2['ID']=fcClusters_keep2.index
-#fcClusters_keep2.to_file('./data/WAKE/keep2.shp')
-
-#Append to the clusters that already have between 50 and 100 BHH
-fcAll1 = fcClusters_keep1.append(fcClusters_keep2,ignore_index=True,sort=False).reset_index()
-
-#Append to original blocks (with more than 50 BHH)
-fcOrig = gdfBlocks2.loc[gdfBlocks2['BlackHH']>50,['BlackHH','geometry']]
-fcOrig['ID'] = fcOrig.index
-fcAll2 = fcOrig.append([fcClusters_keep1,fcClusters_keep2],ignore_index=True,sort=False).reset_index()
-fcAll2.drop('level_0',axis=1,inplace=True)
-
-#Save results to a file
-fcAll2.to_file(orgunits_shapefile_filename)
-#Write metadata
-orgunits_metadata_filename = orgunits_shapefile_filename[:-4]+'.txt'
-with open(orgunits_metadata_filename,'w') as meta:
-    meta.write('''Organizational Voting Units.
-These are Census blocks that are majority black and have at least 50 black households (BHH).
-Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.''')
+#Merge all three keepers
+gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
+gdfAllOrgs.to_file(orgunits_shapefile_filename)
