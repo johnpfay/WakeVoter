@@ -600,8 +600,8 @@ def tally_block_MECE_scores(gdf_voter):
 #%% main
 #Set the run time variables
 state_fips = '37'
-county_fips  = '163'
-county_name = 'DURHAM'
+county_fips  = '119'
+county_name = 'MECKLENBURG'
 
 #Set structure variables
 NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
@@ -793,8 +793,14 @@ gdf_Org3['PctBlack'] = gdf_Org3['P003003'] / gdf_Org3['P003001'] * 100
 gdf_Org3['PctBlack18'] = gdf_Org3['P010004'] / gdf_Org3['P010001'] * 100
 gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
 gdf_Org3['OrgType'] = 'Partial block cluster'
-gdf_Org3.drop(['claimed'],axis=1)
+gdf_Org3.drop(['claimed'],axis=1,inplace=True)
 
 #Merge all three keepers
 gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
 gdfAllOrgs.to_file(orgunits_shapefile_filename)
+
+#Write metdatadat
+with open(orgunits_shapefile_filename[:-3]+"txt",'w') as meta:
+    meta.write('''Organizational Voting Units.
+These are Census blocks that are majority black and have at least 50 black households (BHH).
+Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.''')

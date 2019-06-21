@@ -1,4 +1,4 @@
-.ipynb_checkpoints/*
+Notebooks/.ipynb_checkpoints/*
 data/*.csv
 data/locators/*
 data/spatial/*
@@ -19,4 +19,6 @@ GIS/ImportLog/*
 
 data/WAKE/*
 data/DURHAM/*
+data/MECKLENBURG/*
 data/Census/*
+data/CDR/*
