@@ -600,12 +600,12 @@ def tally_block_MECE_scores(gdf_voter):
 #%% main
 #Set the run time variables
 state_fips = '37'
-county_fips  = '119'
-county_name = 'MECKLENBURG'
+county_fips  = '183'
+county_name = 'WAKE'
 
 #Set structure variables
 NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
-CENSUS_folder = '.\\data\\Census'  #Folder containign Census data
+CENSUS_folder = '.\\data\\Census'  #Folder containing Census data
 
 #Create a folder to hold county data
 COUNTY_folder = '.\\data\\{}'.format(county_name)
@@ -669,29 +669,38 @@ dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 #  (2) have leaders, defined as having two "MECE 1" voters
 #  (3) be of manageable size, defined as fewer than 100 households
 #  (4) 
+#
+# The workflow here is:
+# 1. Join MECE data to the Block geodataframe
+# 2. Remove blocks that are not majority black
+# 3. Subset blocks that have at least 50 black HH, keep as "Original Block" org units
+# 4. Of those blocks that remain, find which, if clustered, yield at least 50 black HH
+#  4a. Spatially cluster (unary_union) blocks with fewer than 50 black HH 
+#      * The clustering algorithm clusters adjacent blocks until 100 black HH occur within them
+#  4b. Recalculate voter statistics on clustered blocks
+#  4c. Remove clustered blocks still with fewer than 50 black HH
+#  4d. Subset clustered blocks with more than 50 black HH, but fewer than 100; 
+#      Keep these as "Full block cluster" org units
+#  4e. With block clusters with 100 or more black HH, cluster individual blocks
+#      one at a time until 100 black HH are reached, then restart with a new subset
+#      of blocks in the cluster until all blocks have been processed. Keep these
+#      as "Partial block clusters". 
+# 5. Combine the three org unit layers: "Original Block" (step 3), "Full block 
+#    clusters" (step 4d), and "Partial block clusters" (step 4e).
+## ---------TO DO---------
+# 6. Assign random IDs to all org units
+# 7. Tag voter data (gdfVoter1) records with orgunit IDs.
+# 8. Summarize voter data on orgunit ID.
+# 9. Join summarized voter data to org unit features.
+# 10. Join precinct ID to org unit features.
+# 11. Join city limit tag (in/out) to org unit features.
+# 12. Compute area (sq mi) of org unit features.
+# 13. Export org units as feature class
 
-
-# Join MECE counts to block features
-gdfBlocks2 = pd.merge(gdfBlocks,dfMECE,on='BLOCKID10',how='inner')
-gdfBlocks2.to_file('{}\\{}_Blocks_MajBlack.shp'.format(COUNTY_folder,county_name)) 
-
-# Subset blocks with at least two MECE 1 voters
-gdfBlocks3 = gdfBlocks2.loc[gdfBlocks2["MECE1"]>=2,:]
-gdfBlocks.shape
-
-# Compute number of black households
-#gdfBlocks3['BlackHH'] = gdfBlocks3.HOUSING10 * gdfBlocks3.PctBlack / 100
-gdfBlocks4 = gdfBlocks3[gdfBlocks3.BlackHH >= 50]
-gdfBlocks4.shape
-
-# Subset blocks with > 50 black households
-
-#%% Set Org Units
-
-#Select blocks that are majority black
+#FILTER 1: Select blocks that are majority black
 gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
 
-#Of those, select blocks that have at least 50 BHH, these we'll keep (1)
+#FILTER 2: Of those, select blocks that have at least 50 BHH, these we'll keep
 gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
 gdf_Org1.drop(['index', 'STATEFP10', 'COUNTYFP10', 
                'TRACTCE10', 'BLOCKCE', 'BLOCKID10',
@@ -799,6 +808,13 @@ gdf_Org3.drop(['claimed'],axis=1,inplace=True)
 
 #Merge all three keepers
 gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
+
+##TO DO SECTION STARTS HERE
+
+# Join MECE counts to org unit features
+#gdfAllOrgs_MECE = pd.merge(gdfAllOrgs,dfMECE,on='BLOCKID10',how='inner')
+
+
 gdfAllOrgs.to_file(orgunits_shapefile_filename)
 
 #Write metdatadat
