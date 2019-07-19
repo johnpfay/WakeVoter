@@ -645,6 +645,8 @@ gdfVoter1 = get_voter_data(state_voter_reg_file,
 #Get the Census API key
 print('2a. Getting the census API key')
 censusKey = open("APIkey.txt","r").readline()
+print("This product uses the Census Bureau Data API but ")
+print("is not endorsed or certified by the Census Bureau.")
 
 #Get the Census block features and attributes for the county
 print('2b. Fetching/reading census block features')
