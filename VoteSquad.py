@@ -43,6 +43,7 @@ Creator: John.Fay@duke.edu
 """
 
 #%% IMPORTS
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely import speedups
@@ -665,14 +666,14 @@ dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 #%% PART 3. ASSIGN VOTER TURF VALUES TO VOTING POINTS
 # Organizational units are areas managed by one or two 'super voters'.
 # These areas should:
-#  (1) have need, defined as having a certian number of black voters
+#  (1) have need, defined as having a certian number of black voters and
+#      occur within a block that is majority black, in terms of households
 #  (2) have leaders, defined as having two "MECE 1" voters
 #  (3) be of manageable size, defined as fewer than 100 households
-#  (4) 
 #
 # The workflow here is:
-# 1. Join MECE data to the Block geodataframe
-# 2. Remove blocks that are not majority black
+# 1. Remove blocks that are not majority black (pctBlack < 50)
+# 2. Join MECE data to the majority black geodataframe
 # 3. Subset blocks that have at least 50 black HH, keep as "Original Block" org units
 # 4. Of those blocks that remain, find which, if clustered, yield at least 50 black HH
 #  4a. Spatially cluster (unary_union) blocks with fewer than 50 black HH 
@@ -697,44 +698,51 @@ dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 # 12. Compute area (sq mi) of org unit features.
 # 13. Export org units as feature class
 
-#FILTER 1: Select blocks that are majority black
+#Step 1. Select blocks that are majority black and add MECE count data
 gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
+#Step 2. Join MECE data (and tidy up fields)
+gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left')
+gdfMajBlack.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
+                 axis=1,inplace=True)
 
-#FILTER 2: Of those, select blocks that have at least 50 BHH, these we'll keep
+#Step 3. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
+#  to be merged with other org units later.
 gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
-gdf_Org1.drop(['index', 'STATEFP10', 'COUNTYFP10', 
-               'TRACTCE10', 'BLOCKCE', 'BLOCKID10',
-               'GEOID10','PARTFLG'],axis=1,inplace=True)
+gdf_Org1.drop(['index', 'BLOCKID10','GEOID10'],axis=1,inplace=True)
 gdf_Org1['OrgID'] = gdf_Org1.index + 1
 gdf_Org1['OrgType'] = 'OriginalBlock'
 
-#Of those, select blocks that have fewer than 50 BHH; these we'll cluster
+#Step 4. Select the majority black blocks with fewer than 50 black HH for clustering
 gdfMajBlack_LT50 = gdfMajBlack.query('BlackHH < 50')
 
-#Cluster
+#Step 4a. Cluster adjacent blocks into a single feature and assing a ClusterID
 gdfClusters = gpd.GeoDataFrame(geometry = list(gdfMajBlack_LT50.unary_union))
 gdfClusters['ClusterID'] = gdfClusters.index
-gdfClusters.crs = gdfMajBlack_LT50.crs
+gdfClusters.crs = gdfMajBlack_LT50.crs #Set the coordinate reference system
 
-#Spatially join the cluster ID to the original blocks
+#Step 4b. Recalculate population stats for the clusters
+# -> Done by first spatially joininig the cluster ID to the blocks w/ < 50 Black HH
 gdfMajBlack_LT50_2 = gpd.sjoin(gdfMajBlack_LT50,gdfClusters,
                                how='left',op='within').drop("index_right",axis=1)
-
-#Compute the total BHH for the dissolved blocks and add as block attribute
+# -> Next we dissolve on the cluster ID computing SUM of the numeric attributes
+#    and updating the percentage fields
 gdfClusters_2 = gdfMajBlack_LT50_2.dissolve(by='ClusterID', aggfunc='sum')
 gdfClusters_2['PctBlack'] = gdfClusters_2['P003003'] / gdfClusters_2['P003001'] * 100
 gdfClusters_2['PctBlack18'] = gdfClusters_2['P010004'] / gdfClusters_2['P010001'] * 100
 
-#Remove block clusters with fewer than 50 BHH; these are impractical
+#Step 4c. Remove block clusters with fewer than 50 BHH; these are impractical
 gdfClusters_2 = gdfClusters_2.query('BlackHH >= 50')
 
-#Select clusters with fewer than 100 BHH, these we'll keep as org units(2)
+#Step 4d. Select clusters with fewer than 100 BHH and save as gdf_Org2, to be merged...
 gdf_Org2 = gdfClusters_2.query('BlackHH <= 100').reset_index()
 gdf_Org2['OrgID'] = gdf_Org1['OrgID'].max() + gdf_Org2.index + 1
 gdf_Org2['OrgType'] = 'Full block cluster'
 
-#Get a list of Cluster IDs for block clusters with more than 100 BHH;
-# we'll cluster individual blocks with these IDs until BHH >= 100
+#Step 4e. For clusters that are too big (> 100 Black HH), cluster incrementally
+#  so that clusters have up to 100 Black HH. These will be saved as gdf_Org3
+
+#-> Get a list of Cluster IDs for block clusters with more than 100 BHH;
+#   we'll cluster individual blocks with these IDs until BHH >= 100
 clusterIDs = gdfClusters_2.query('BlackHH > 100').index.unique()
 
 #Iterate through each clusterID
@@ -742,7 +750,6 @@ gdfs = []
 for clusterID in clusterIDs:
     #Get all the blocks in the selected cluster
     gdfBlksAll = gdfMajBlack_LT50_2.query('ClusterID == {}'.format(clusterID)).reset_index()
-
     #Assign the X coordinate, used to select the first feature in a sub-cluster
     gdfBlksAll['X'] = gdfBlksAll.geometry.centroid.x
     #Set all blocks to "unclaimed"
@@ -798,7 +805,7 @@ for clusterID in clusterIDs:
         stopLoop += 1
         if stopLoop > 100: break
     
-#Concat these to a new geodataframe
+#-> Concat these to a new geodataframe
 gdf_Org3 = pd.concat(gdfs,sort=False)
 gdf_Org3['PctBlack'] = gdf_Org3['P003003'] / gdf_Org3['P003001'] * 100
 gdf_Org3['PctBlack18'] = gdf_Org3['P010004'] / gdf_Org3['P010001'] * 100
@@ -806,14 +813,28 @@ gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
 gdf_Org3['OrgType'] = 'Partial block cluster'
 gdf_Org3.drop(['claimed'],axis=1,inplace=True)
 
-#Merge all three keepers
+#Step 5. Merge all three keepers
 gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
 
 ##TO DO SECTION STARTS HERE
+# Compute Random Org IDs
+numRows = gdfAllOrgs.shape[0]
+gdfAllOrgs['Rando'] = np.random.randint(numRows,size=(numRows,1)) 
+gdfAllOrgs.sort_values(by='Rando',axis=0,inplace=True)
+gdfAllOrgs.reset_index(inplace=True)
+gdfAllOrgs['RandomID'] = gdfAllOrgs.index + 1
+gdfAllOrgs.drop(['index','ClusterID','claimed','Rando'],axis=1,inplace=True)
 
-# Join MECE counts to org unit features
-#gdfAllOrgs_MECE = pd.merge(gdfAllOrgs,dfMECE,on='BLOCKID10',how='inner')
+# Compute area, in square miles
+# Project data to NC State Plane (feet)                           
 
+import os, sys
+env_folder = os.path.dirname(sys.executable)
+print(os.path.join(env_folder,'Library','share'))
+os.environ['PROJ_LIB']=os.path.join(env_folder,'Library','share')
+gdfNCStatePlane = gdfAllOrgs.to_crs({'init': 'epsg:2264'})  
+gdfNCStatePlane['area'] = gdfNCStatePlane.geometry.area 
+gdfAllOrgs['sq_miles']  =  gdfNCStatePlane['area'] / 27878400  #ft to sq mi
 
 gdfAllOrgs.to_file(orgunits_shapefile_filename)
 
