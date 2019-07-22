@@ -593,10 +593,10 @@ def tally_block_MECE_scores(gdf_voter):
     df_MECE.columns = ['BLOCKID10','MECE1','MECE2','MECE3','MECE4','MECE5']
     #Compute total voters in the block
     print("  Computing total election count per voter")
-    df_MECE['Total']=df_MECE[['MECE1','MECE2','MECE3','MECE4']].sum(axis=1)
+    df_MECE['Total']=df_MECE[['MECE1','MECE2','MECE3','MECE4','MECE5']].sum(axis=1)
     #Convert dtypes to integers
     colList = ['MECE1','MECE2','MECE3','MECE4','MECE5','Total']
-    df_MECE[colList] = df_MECE[colList].apply(pd.as_type('int'))
+    df_MECE[colList] = df_MECE[colList].astype('int')
 
     return df_MECE
 
