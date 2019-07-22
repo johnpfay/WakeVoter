@@ -514,7 +514,6 @@ def append_blockdata_to_voterpoints(gdf_voter,gdf_blocks,output_shapefile):
     print("  ...removing extraneous columns")
     gdf.drop(columns=['index_right','STATEFP10', 'COUNTYFP10', 'TRACTCE10', 
                       'BLOCKCE', 'GEOID10', 'PARTFLG'],axis='columns',inplace=True)
-    print('  ...saving to {} [Be patient...]'.format(output_shapefile))
     
     #Save dataframe, if one is given
     if output_shapefile:
