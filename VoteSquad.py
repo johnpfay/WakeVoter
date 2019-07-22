@@ -823,7 +823,7 @@ gdfAllOrgs['Rando'] = np.random.randint(numRows,size=(numRows,1))
 gdfAllOrgs.sort_values(by='Rando',axis=0,inplace=True)
 gdfAllOrgs.reset_index(inplace=True)
 gdfAllOrgs['RandomID'] = gdfAllOrgs.index + 1
-gdfAllOrgs.drop(['index','ClusterID','claimed','Rando'],axis=1,inplace=True)
+gdfAllOrgs.drop(['index','ClusterID','Rando'],axis=1,inplace=True)
 
 # Compute area, in square miles
 # Project data to NC State Plane (feet)                           
@@ -837,6 +837,7 @@ gdfNCStatePlane['area'] = gdfNCStatePlane.geometry.area
 gdfAllOrgs['sq_miles']  =  gdfNCStatePlane['area'] / 27878400  #ft to sq mi
 
 gdfAllOrgs.to_file(orgunits_shapefile_filename)
+gdfAllOrgs.to_csv(orgunits_shapefile_filename[:-3]+'csv',index=False)
 
 #Write metdatadat
 with open(orgunits_shapefile_filename[:-3]+"txt",'w') as meta:
