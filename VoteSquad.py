@@ -599,7 +599,11 @@ def tally_block_MECE_scores(gdf_voter):
     df_MECE[colList] = df_MECE[colList].astype('int')
 
     return df_MECE
-
+#%% Functions V2
+#def addPrecinct(voter_dataframe):
+#group by blockID and precinct_abbreve
+dfBlockPrecincts = gdfVoter.loc[:,['BLOCKID10','precinct_abbrv']].drop_duplicates()
+dfBlockPrecincts.group_by('precinct_abbrv').count()
 #%% main
 #Set the run time variables
 state_fips = '37'
@@ -703,7 +707,9 @@ dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 #Step 1. Select blocks that are majority black and add MECE count data
 gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
 #Step 2. Join MECE data (and tidy up fields)
-gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left')
+gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left').fillna(0)
+# Fix dtypes (Pandas defaults back to floats)
+gdfMajBlack[gdfMajBlack.columns[-6:]] = gdfMajBlack[gdfMajBlack.columns[-6:]] .astype('int')
 gdfMajBlack.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
                  axis=1,inplace=True)
 
@@ -819,7 +825,8 @@ gdf_Org3.drop(['claimed'],axis=1,inplace=True)
 gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
 
 ##TO DO SECTION STARTS HERE
-# Compute Random Org IDs
+print("Generating random IDs for org units")
+# 1. Compute Random Org IDs
 numRows = gdfAllOrgs.shape[0]
 gdfAllOrgs['Rando'] = np.random.randint(numRows,size=(numRows,1)) 
 gdfAllOrgs.sort_values(by='Rando',axis=0,inplace=True)
@@ -827,21 +834,54 @@ gdfAllOrgs.reset_index(inplace=True)
 gdfAllOrgs['RandomID'] = gdfAllOrgs.index + 1
 gdfAllOrgs.drop(['index','ClusterID','Rando'],axis=1,inplace=True)
 
-# Compute area, in square miles
-# Project data to NC State Plane (feet)                           
 
+# 2. Compute org unit area, in square miles
+print("Computing org unit areas (in sq miles)")
+#---FIX FOR PYPROJ GLITCH---
 import os, sys
 env_folder = os.path.dirname(sys.executable)
 print(os.path.join(env_folder,'Library','share'))
 os.environ['PROJ_LIB']=os.path.join(env_folder,'Library','share')
+#---
+# Project data to NC State Plane (feet)   
 gdfNCStatePlane = gdfAllOrgs.to_crs({'init': 'epsg:2264'})  
+# Compute area, in square miles
 gdfNCStatePlane['area'] = gdfNCStatePlane.geometry.area 
 gdfAllOrgs['sq_miles']  =  gdfNCStatePlane['area'] / 27878400  #ft to sq mi
 
-gdfAllOrgs.to_file(orgunits_shapefile_filename)
+
+# 3. Tag voter data with org Unit ID
+print("Tagging voter data with org unit [random] IDs")
+gdfVoter_org = gpd.sjoin(left_df = gdfVoter, right_df=gdfAllOrgs[['RandomID','geometry']], 
+                         how='right',op='within')
+# Clean up columns
+gdfVoter_org.drop(columns=['index_left','ethnic_code','party_cd',
+                           'Oct17', 'Nov12', 'Nov18', 'Nov17', 'Nov16',
+                           'HOUSING10', 'POP10', 'P003001', 'P003003', 'P010001',
+                           'P010004', 'PctBlack', 'PctBlack18', 'BlackHH'],inplace=True)
+
+        
+# 4. Add precinct and city information to org unit
+# -> Create a lookup table of precincty and city for each random ID
+dfLookup = (gdfVoter_org[['RandomID','precinct_abbrv','res_city_desc']].
+            groupby('RandomID').
+            agg(pd.Series.mode)).reset_index()
+# -> Join back to the orgs dataframe
+gdfAllOrgs2 = gdfAllOrgs.merge(dfLookup,on='RandomID',how='left')
+gdfAllOrgs2['precinct_abbrv'] = gdfAllOrgs2['precinct_abbrv'].astype('str')
+gdfAllOrgs2['res_city_desc'] = gdfAllOrgs2['res_city_desc'].astype('str')
+
+
+#Fix column names
+#gdfAllOrgs_tidy = gdfAllOrgs[['RandomID','OrgType'
+#        ]]
+
+gdfAllOrgs2.to_file(orgunits_shapefile_filename)
 gdfAllOrgs.to_csv(orgunits_shapefile_filename[:-3]+'csv',index=False)
 
-#Write metdatadat
+
+
+#Write metdatada
 with open(orgunits_shapefile_filename[:-3]+"txt",'w') as meta:
     meta.write('''Organizational Voting Units.
 These are Census blocks that are majority black and have at least 50 black households (BHH).
