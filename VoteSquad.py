@@ -599,11 +599,7 @@ def tally_block_MECE_scores(gdf_voter):
     df_MECE[colList] = df_MECE[colList].astype('int')
 
     return df_MECE
-#%% Functions V2
-#def addPrecinct(voter_dataframe):
-#group by blockID and precinct_abbreve
-dfBlockPrecincts = gdfVoter.loc[:,['BLOCKID10','precinct_abbrv']].drop_duplicates()
-dfBlockPrecincts.group_by('precinct_abbrv').count()
+
 #%% main
 #Set the run time variables
 state_fips = '37'
@@ -694,19 +690,20 @@ dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 #      as "Partial block clusters". 
 # 5. Combine the three org unit layers: "Original Block" (step 3), "Full block 
 #    clusters" (step 4d), and "Partial block clusters" (step 4e).
-## ---------TO DO---------
 # 6. Assign random IDs to all org units
-# 7. Tag voter data (gdfVoter1) records with orgunit IDs.
-# 8. Summarize voter data on orgunit ID.
-# 9. Join summarized voter data to org unit features.
-# 10. Join precinct ID to org unit features.
-# 11. Join city limit tag (in/out) to org unit features.
-# 12. Compute area (sq mi) of org unit features.
-# 13. Export org units as feature class
+# 7. Compute area (sq mi) of org unit features.
+# 8. Tag voter data with orgunit ID.
+# 9. Add precinct and city information to org unit
+# 10. Tidy and export voter and org unit feature classes
+
+print("PROCESSING ORG UNITS")
 
 #Step 1. Select blocks that are majority black and add MECE count data
+print(" 1. Subsetting blocks that are majority black.")
 gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
+
 #Step 2. Join MECE data (and tidy up fields)
+print(" 2. Joining block MECE data to selected blocks.")
 gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left').fillna(0)
 # Fix dtypes (Pandas defaults back to floats)
 gdfMajBlack[gdfMajBlack.columns[-6:]] = gdfMajBlack[gdfMajBlack.columns[-6:]] .astype('int')
@@ -715,20 +712,24 @@ gdfMajBlack.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
 
 #Step 3. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
 #  to be merged with other org units later.
+print(" 3. Keeping majority black blocks with > 50 black households to 'Org1'")
 gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
 gdf_Org1.drop(['index', 'BLOCKID10','GEOID10'],axis=1,inplace=True)
 gdf_Org1['OrgID'] = gdf_Org1.index + 1
-gdf_Org1['OrgType'] = 'OriginalBlock'
+gdf_Org1['OrgType'] = 'block'
 
 #Step 4. Select the majority black blocks with fewer than 50 black HH for clustering
+print(" 4. Clustering the remaining blocks...")
 gdfMajBlack_LT50 = gdfMajBlack.query('BlackHH < 50')
 
 #Step 4a. Cluster adjacent blocks into a single feature and assing a ClusterID
+print("  4a. Finding intitial clusters...")
 gdfClusters = gpd.GeoDataFrame(geometry = list(gdfMajBlack_LT50.unary_union))
 gdfClusters['ClusterID'] = gdfClusters.index
 gdfClusters.crs = gdfMajBlack_LT50.crs #Set the coordinate reference system
 
 #Step 4b. Recalculate population stats for the clusters
+print("  4b. Computing number of black households in new clusters...")
 # -> Done by first spatially joininig the cluster ID to the blocks w/ < 50 Black HH
 gdfMajBlack_LT50_2 = gpd.sjoin(gdfMajBlack_LT50,gdfClusters,
                                how='left',op='within').drop("index_right",axis=1)
@@ -739,16 +740,18 @@ gdfClusters_2['PctBlack'] = gdfClusters_2['P003003'] / gdfClusters_2['P003001'] 
 gdfClusters_2['PctBlack18'] = gdfClusters_2['P010004'] / gdfClusters_2['P010001'] * 100
 
 #Step 4c. Remove block clusters with fewer than 50 BHH; these are impractical
+print("  4c. Removing clusters still with < 50 black households (impractical)...")
 gdfClusters_2 = gdfClusters_2.query('BlackHH >= 50')
 
 #Step 4d. Select clusters with fewer than 100 BHH and save as gdf_Org2, to be merged...
+print("  4d. Keeping new clusters with fewer than 100 black households: 'Org2'")
 gdf_Org2 = gdfClusters_2.query('BlackHH <= 100').reset_index()
 gdf_Org2['OrgID'] = gdf_Org1['OrgID'].max() + gdf_Org2.index + 1
-gdf_Org2['OrgType'] = 'Full block cluster'
+gdf_Org2['OrgType'] = 'block aggregate'
 
 #Step 4e. For clusters that are too big (> 100 Black HH), cluster incrementally
 #  so that clusters have up to 100 Black HH. These will be saved as gdf_Org3
-
+print("  4e. Reclustering clusters with > 100 HH into smaller aggregates...")
 #-> Get a list of Cluster IDs for block clusters with more than 100 BHH;
 #   we'll cluster individual blocks with these IDs until BHH >= 100
 clusterIDs = gdfClusters_2.query('BlackHH > 100').index.unique()
@@ -813,19 +816,21 @@ for clusterID in clusterIDs:
         stopLoop += 1
         if stopLoop > 100: break
     
-#-> Concat these to a new geodataframe
+#-> Concat these to a new geodataframe, update pct fields, and add Org ID and types
+print("    ...completing creating on new clusters: 'Org3'")
 gdf_Org3 = pd.concat(gdfs,sort=False)
 gdf_Org3['PctBlack'] = gdf_Org3['P003003'] / gdf_Org3['P003001'] * 100
 gdf_Org3['PctBlack18'] = gdf_Org3['P010004'] / gdf_Org3['P010001'] * 100
 gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
-gdf_Org3['OrgType'] = 'Partial block cluster'
+gdf_Org3['OrgType'] = 'block aggregate'
 gdf_Org3.drop(['claimed'],axis=1,inplace=True)
 
 #Step 5. Merge all three keepers
+print(" 5. Combining Org1, Org2, Org3 into a single feature class")
 gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
 
-##TO DO SECTION STARTS HERE
-print("Generating random IDs for org units")
+#Step 6. Assign random IDs 
+print("6. Assigning random IDs for org units")
 # 1. Compute Random Org IDs
 numRows = gdfAllOrgs.shape[0]
 gdfAllOrgs['Rando'] = np.random.randint(numRows,size=(numRows,1)) 
@@ -834,9 +839,8 @@ gdfAllOrgs.reset_index(inplace=True)
 gdfAllOrgs['RandomID'] = gdfAllOrgs.index + 1
 gdfAllOrgs.drop(['index','ClusterID','Rando'],axis=1,inplace=True)
 
-
-# 2. Compute org unit area, in square miles
-print("Computing org unit areas (in sq miles)")
+# Step 7. Compute org unit area, in square miles
+print(" 7. Computing org unit areas (in sq miles)")
 #---FIX FOR PYPROJ GLITCH---
 import os, sys
 env_folder = os.path.dirname(sys.executable)
@@ -849,9 +853,9 @@ gdfNCStatePlane = gdfAllOrgs.to_crs({'init': 'epsg:2264'})
 gdfNCStatePlane['area'] = gdfNCStatePlane.geometry.area 
 gdfAllOrgs['sq_miles']  =  gdfNCStatePlane['area'] / 27878400  #ft to sq mi
 
-
-# 3. Tag voter data with org Unit ID
-print("Tagging voter data with org unit [random] IDs")
+# Step 8. Tag voter data with org Unit ID
+print(" 8. Tagging voter data with org unit [random] IDs")
+# Spatially join org units' RandomID values to voter points
 gdfVoter_org = gpd.sjoin(left_df = gdfVoter, right_df=gdfAllOrgs[['RandomID','geometry']], 
                          how='right',op='within')
 # Clean up columns
@@ -859,30 +863,76 @@ gdfVoter_org.drop(columns=['index_left','ethnic_code','party_cd',
                            'Oct17', 'Nov12', 'Nov18', 'Nov17', 'Nov16',
                            'HOUSING10', 'POP10', 'P003001', 'P003003', 'P010001',
                            'P010004', 'PctBlack', 'PctBlack18', 'BlackHH'],inplace=True)
-
-        
-# 4. Add precinct and city information to org unit
+   
+# Step 9. Add precinct and city information to org unit
+print(" 9. Adding precinct and city information to org units")
 # -> Create a lookup table of precincty and city for each random ID
 dfLookup = (gdfVoter_org[['RandomID','precinct_abbrv','res_city_desc']].
             groupby('RandomID').
             agg(pd.Series.mode)).reset_index()
 # -> Join back to the orgs dataframe
 gdfAllOrgs2 = gdfAllOrgs.merge(dfLookup,on='RandomID',how='left')
+# -> fix column types
 gdfAllOrgs2['precinct_abbrv'] = gdfAllOrgs2['precinct_abbrv'].astype('str')
 gdfAllOrgs2['res_city_desc'] = gdfAllOrgs2['res_city_desc'].astype('str')
 
 
-#Fix column names
-#gdfAllOrgs_tidy = gdfAllOrgs[['RandomID','OrgType'
-#        ]]
 
-gdfAllOrgs2.to_file(orgunits_shapefile_filename)
-gdfAllOrgs.to_csv(orgunits_shapefile_filename[:-3]+'csv',index=False)
+# Step 10. Tidy up and export the voter and org unit feature classes
+## OrgUnit features: 
+## Rename columns:
+gdfAllOrgs2.rename(columns={'precinct_abbrv':'Precinct',
+                            'P003001':'Total_census_population',
+                            'P003003':'Total_census_Black_population',
+                            'PctBlack':'Pct_Black_census',
+                            'Total':'Total_Black_registered_population',
+                            'sq_miles':'square_miles',
+                            'res_city_desc':'city'},inplace=True)
+        
+## Reorder and subset existing columns
+gdfAllOrgs_out = gdfAllOrgs2.loc[:,['RandomID','OrgType','Precinct','BlackHH',
+                                    'Total_census_population','Total_census_Black_population',
+                                    'Pct_Black_census','Total_Black_registered_population',
+                                    'square_miles','MECE1','MECE2','MECE3','MECE4','MECE5',
+                                    'city','geometry' ]]
 
-
+#Append new blank columns
+for newCol in ("support_volunteer_name", "support_vol_phone", "support_vol_email", 
+               "block_team_member", "block_team-phone", "block_team_email","Notes"):
+    gdfAllOrgs_out[newCol]=''    
+        
+#Write output
+gdfAllOrgs_out.to_file(orgunits_shapefile_filename)
+gdfAllOrgs_out.to_csv(orgunits_shapefile_filename[:-3]+'csv',index=False)
 
 #Write metdatada
-with open(orgunits_shapefile_filename[:-3]+"txt",'w') as meta:
+with open(orgunits_shapefile_filename[:-4]+"README.txt",'w') as meta:
     meta.write('''Organizational Voting Units.
 These are Census blocks that are majority black and have at least 50 black households (BHH).
-Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.''')
+Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.
+
+Data dictionary:
+    'RandomID' - Randomized org unit ID
+    'OrgType' - Org type (block or block aggregate)
+    'Precinct' - Precinct number
+    'BlackHH' - Estimated Black HH
+    'Total_census_population' - Total census population
+    'Total_census_Black_population' - Total census Black population
+    'Pct_Black_census' - --% Black pop (census)
+    'Total_Black_registered_population' - Total Black registered population
+    'square_miles' - Area of unit in square miles
+    'MECE1' - # of black voters in MECE1
+    'MECE2' - # of black voters in MECE2
+    'MECE3' - # of black voters in MECE3
+    'MECE4' - # of black voters in MECE4
+    'MECE5' - # of black voters in MECE5
+    'city' - City in which majority of org unit is found
+    'support_volunteer_name' - 
+    'support_vol_phone' -  
+    'support_vol_email' - 
+    'block_team_member' - 
+    'block_team-phone', - 
+    'block_team_email' - 
+    'Notes'  - 
+    
+    ''')
