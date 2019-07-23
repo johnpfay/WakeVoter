@@ -289,7 +289,8 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
                              'res_city_desc','state_cd','zip_code','precinct_abbrv',
                              'race_code','ethnic_code','gender_code','ncid',
                              'mail_addr1','mail_city','mail_state','mail_zipcode',
-                             'full_phone_number'],
+                             'full_phone_number','birth_age','voter_reg_num',
+                             'last_name','first_name','middle_name','precinct_abbrv'],
                     sep='\t',
                     encoding = "ISO-8859-1",low_memory=False)
     
@@ -940,7 +941,7 @@ Data dictionary:
     'Notes'  - 
     
     ''')
-print(    'Org units saved to {}'.format(orgunits_shapefile_filename))
+print('    Org units saved to {}'.format(orgunits_shapefile_filename))
 
 #--- 11. Tidy and export voter features
 print(' 11. Tiding and exporting voter features...')
@@ -951,18 +952,19 @@ gdfVoter_org_copy = gdfVoter_org.rename(columns={'gender_code':'Gender',
                                                 'res_street_address':'Residential_street_address',
                                                 'zip_code':'Residential_street_address_zip',
                                                 'mail_addr1':'Mailing_street_address',
-
-                                                })
+                                                'mail_zipcode':'Mailing_street_address_zip',
+                                                'birth_age':'Age'})
 ## Compute address lines
-gdfVoter_org_copy['Residential_street_address_line2'] = gdfVoter_org_copy['res_city_desc'] +' '+ gdfVoter_org_copy['state_cd']
-gdfVoter_org_copy['Maling_street_address_line2'] = gdfVoter_org_copy['mail_city'] +' '+ gdfVoter_org_copy['mail_state']
+gdfVoter_org_copy['Residential_street_address_line2'] = gdfVoter_org_copy['res_city_desc'] +', '+ gdfVoter_org_copy['state_cd']
+gdfVoter_org_copy['Mailing_street_address_line2'] = gdfVoter_org_copy['mail_city'] +', '+ gdfVoter_org_copy['mail_state']
                                                 
 ## Reorder and subset existing columns
-gdfVoter_out = gdfVoter_org_copy.loc[:,['RandomID','Gender','Race','MECE','Residential_street_address',
-                                          'Residential_street_address_line2','Residential_street_address_zip',
-                                          'Mailing_street_address','Mailing_street_address_line2',
-                                          'Mailing_street_address_zip','ncid','latitude','longitude',
-                                          'geometry']]
+gdfVoter_out = gdfVoter_org_copy.loc[:,['RandomID','Gender','Race','Age','MECE','first_name','middle_name',
+                                        'last_name','Residential_street_address',
+                                        'Residential_street_address_line2','Residential_street_address_zip',
+                                        'Mailing_street_address','Mailing_street_address_line2',
+                                        'Mailing_street_address_zip','ncid',
+                                        'latitude','longitude','geometry']]
 
 ##Write output
 gdfVoter_out.to_file(voter_shapefile_name)
@@ -975,10 +977,14 @@ These are Census blocks that are majority black and have at least 50 black house
 Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.
 
 Data dictionary:
-    'RandomID'
-    'Gender'
-    'Race'
-    'MECE'
+    'RandomID' - Randomized Org Unit ID
+    'Gender' - Voter gender 
+    'Race' - Voter race
+    'Age' - Voter age
+    'MECE' - Voter MECE
+    'first_name' 
+    'middle_name'
+    'last_name'
     'Residential street address'
     'Residential street address line 2'
     'Residential street address zip'
@@ -986,8 +992,9 @@ Data dictionary:
     'Mailing street address line 2'
     'Mailing street address zip'
     'ncid'
+    'voter_reg_num'
     'Latitude'
-    'Longitude'
-
-    
+    'Longitude'   
     ''')
+        
+print('    Voter data saved to {}'.format(voter_shapefile_name))
