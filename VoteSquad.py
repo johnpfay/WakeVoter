@@ -263,6 +263,9 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
         and then "geocodes" the data by joining the registered voter's address
         to SBE's address file (https://dl.ncsbe.gov/index.html?prefix=ShapeFiles/).
         
+        Metadata on the source data format is here:
+            https://s3.amazonaws.com/dl.ncsbe.gov/data/ncvhis_ncvoter_data_format.txt
+        
     Args:
         data_file(str): Path to local, unzipped voter registration database
         address_file(str): Path to local, unzipped address points file
@@ -283,8 +286,10 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
     print("  Reading in the voter registration data file...")
     dfAll = pd.read_csv(data_file,
                     usecols=['county_desc','voter_reg_num','res_street_address',
-                             'res_city_desc','state_cd','zip_code','precinct_abbrv','race_code',
-                             'ethnic_code','gender_code','party_cd','ncid'],
+                             'res_city_desc','state_cd','zip_code','precinct_abbrv',
+                             'race_code','ethnic_code','gender_code','ncid',
+                             'mail_addr1','mail_city','mail_state','mail_zipcode',
+                             'full_phone_number'],
                     sep='\t',
                     encoding = "ISO-8859-1",low_memory=False)
     
@@ -657,11 +662,11 @@ gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,c
 
 #Join blocks to voter points
 print('2c. Joining block data to voter features')
-gdfVoter = append_blockdata_to_voterpoints(gdfVoter1,gdfBlocks,voter_shapefile_name)
+gdfVoter = append_blockdata_to_voterpoints(gdfVoter1,gdfBlocks,'')#voter_shapefile_name)
 
 #Subset voter points
 print('2d. Extracting black voters in majority black blocks')
-gdfVoter_subset = subset_voter_points(gdfVoter,subset_voter_shapefile_name)
+gdfVoter_subset = subset_voter_points(gdfVoter,'')#subset_voter_shapefile_name)
 
 #Compute MECE counts by block
 dfMECE = tally_block_MECE_scores(gdfVoter_subset)
@@ -698,11 +703,11 @@ dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 
 print("PROCESSING ORG UNITS")
 
-#Step 1. Select blocks that are majority black and add MECE count data
+#--- Step 1. Select blocks that are majority black and add MECE count data
 print(" 1. Subsetting blocks that are majority black.")
 gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
 
-#Step 2. Join MECE data (and tidy up fields)
+#--- Step 2. Join MECE data (and tidy up fields)
 print(" 2. Joining block MECE data to selected blocks.")
 gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left').fillna(0)
 # Fix dtypes (Pandas defaults back to floats)
@@ -710,7 +715,7 @@ gdfMajBlack[gdfMajBlack.columns[-6:]] = gdfMajBlack[gdfMajBlack.columns[-6:]] .a
 gdfMajBlack.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
                  axis=1,inplace=True)
 
-#Step 3. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
+#--- Step 3. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
 #  to be merged with other org units later.
 print(" 3. Keeping majority black blocks with > 50 black households to 'Org1'")
 gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
@@ -718,7 +723,7 @@ gdf_Org1.drop(['index', 'BLOCKID10','GEOID10'],axis=1,inplace=True)
 gdf_Org1['OrgID'] = gdf_Org1.index + 1
 gdf_Org1['OrgType'] = 'block'
 
-#Step 4. Select the majority black blocks with fewer than 50 black HH for clustering
+#--- Step 4. Select the majority black blocks with fewer than 50 black HH for clustering
 print(" 4. Clustering the remaining blocks...")
 gdfMajBlack_LT50 = gdfMajBlack.query('BlackHH < 50')
 
@@ -825,12 +830,12 @@ gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
 gdf_Org3['OrgType'] = 'block aggregate'
 gdf_Org3.drop(['claimed'],axis=1,inplace=True)
 
-#Step 5. Merge all three keepers
+#--- Step 5. Merge all three keepers
 print(" 5. Combining Org1, Org2, Org3 into a single feature class")
 gdfAllOrgs = pd.concat((gdf_Org1, gdf_Org2, gdf_Org3),axis=0,sort=True)
 
-#Step 6. Assign random IDs 
-print("6. Assigning random IDs for org units")
+#--- Step 6. Assign random IDs 
+print(" 6. Assigning random IDs for org units")
 # 1. Compute Random Org IDs
 numRows = gdfAllOrgs.shape[0]
 gdfAllOrgs['Rando'] = np.random.randint(numRows,size=(numRows,1)) 
@@ -839,32 +844,31 @@ gdfAllOrgs.reset_index(inplace=True)
 gdfAllOrgs['RandomID'] = gdfAllOrgs.index + 1
 gdfAllOrgs.drop(['index','ClusterID','Rando'],axis=1,inplace=True)
 
-# Step 7. Compute org unit area, in square miles
+#--- Step 7. Compute org unit area, in square miles
 print(" 7. Computing org unit areas (in sq miles)")
-#---FIX FOR PYPROJ GLITCH---
+
+## FIX FOR PYPROJ GLITCH ##
 import os, sys
 env_folder = os.path.dirname(sys.executable)
-print(os.path.join(env_folder,'Library','share'))
 os.environ['PROJ_LIB']=os.path.join(env_folder,'Library','share')
-#---
+
 # Project data to NC State Plane (feet)   
 gdfNCStatePlane = gdfAllOrgs.to_crs({'init': 'epsg:2264'})  
 # Compute area, in square miles
 gdfNCStatePlane['area'] = gdfNCStatePlane.geometry.area 
 gdfAllOrgs['sq_miles']  =  gdfNCStatePlane['area'] / 27878400  #ft to sq mi
 
-# Step 8. Tag voter data with org Unit ID
+#--- Step 8. Tag voter data with org Unit ID
 print(" 8. Tagging voter data with org unit [random] IDs")
 # Spatially join org units' RandomID values to voter points
 gdfVoter_org = gpd.sjoin(left_df = gdfVoter, right_df=gdfAllOrgs[['RandomID','geometry']], 
                          how='right',op='within')
 # Clean up columns
-gdfVoter_org.drop(columns=['index_left','ethnic_code','party_cd',
-                           'Oct17', 'Nov12', 'Nov18', 'Nov17', 'Nov16',
+gdfVoter_org.drop(columns=['index_left','Oct17', 'Nov12', 'Nov18', 'Nov17', 'Nov16',
                            'HOUSING10', 'POP10', 'P003001', 'P003003', 'P010001',
                            'P010004', 'PctBlack', 'PctBlack18', 'BlackHH'],inplace=True)
    
-# Step 9. Add precinct and city information to org unit
+#--- Step 9. Add precinct and city information to org unit
 print(" 9. Adding precinct and city information to org units")
 # -> Create a lookup table of precincty and city for each random ID
 dfLookup = (gdfVoter_org[['RandomID','precinct_abbrv','res_city_desc']].
@@ -878,8 +882,8 @@ gdfAllOrgs2['res_city_desc'] = gdfAllOrgs2['res_city_desc'].astype('str')
 
 
 
-# Step 10. Tidy up and export the voter and org unit feature classes
-## OrgUnit features: 
+#--- Step 10. Tidy up and export the org unit feature class
+print(' 10. Tiding and exporting org unit features...')
 ## Rename columns:
 gdfAllOrgs2.rename(columns={'precinct_abbrv':'Precinct',
                             'P003001':'Total_census_population',
@@ -896,16 +900,16 @@ gdfAllOrgs_out = gdfAllOrgs2.loc[:,['RandomID','OrgType','Precinct','BlackHH',
                                     'square_miles','MECE1','MECE2','MECE3','MECE4','MECE5',
                                     'city','geometry' ]]
 
-#Append new blank columns
+##Append new blank columns
 for newCol in ("support_volunteer_name", "support_vol_phone", "support_vol_email", 
                "block_team_member", "block_team-phone", "block_team_email","Notes"):
     gdfAllOrgs_out[newCol]=''    
         
-#Write output
+##Write output
 gdfAllOrgs_out.to_file(orgunits_shapefile_filename)
-gdfAllOrgs_out.to_csv(orgunits_shapefile_filename[:-3]+'csv',index=False)
+gdfAllOrgs_out.drop(['geometry'],axis=1).to_csv(orgunits_shapefile_filename[:-3]+'csv',index=False)
 
-#Write metdatada
+##Write metdatada
 with open(orgunits_shapefile_filename[:-4]+"README.txt",'w') as meta:
     meta.write('''Organizational Voting Units.
 These are Census blocks that are majority black and have at least 50 black households (BHH).
@@ -934,5 +938,56 @@ Data dictionary:
     'block_team-phone', - 
     'block_team_email' - 
     'Notes'  - 
+    
+    ''')
+print(    'Org units saved to {}'.format(orgunits_shapefile_filename))
+
+#--- 11. Tidy and export voter features
+print(' 11. Tiding and exporting voter features...')
+## Rename columns:
+gdfVoter_org_copy = gdfVoter_org.copy(deep=True)
+gdfVoter_org_copy = gdfVoter_org.rename(columns={'gender_code':'Gender',
+                                                'race_code':'Race',
+                                                'res_street_address':'Residential_street_address',
+                                                'zip_code':'Residential_street_address_zip',
+                                                'mail_addr1':'Mailing_street_address',
+
+                                                })
+## Compute address lines
+gdfVoter_org_copy['Residential_street_address_line2'] = gdfVoter_org_copy['res_city_desc'] +' '+ gdfVoter_org_copy['state_cd']
+gdfVoter_org_copy['Maling_street_address_line2'] = gdfVoter_org_copy['mail_city'] +' '+ gdfVoter_org_copy['mail_state']
+                                                
+## Reorder and subset existing columns
+gdfVoter_out = gdfVoter_org_copy.loc[:,['RandomID','Gender','Race','MECE','Residential_street_address',
+                                          'Residential_street_address_line2','Residential_street_address_zip',
+                                          'Mailing_street_address','Mailing_street_address_line2',
+                                          'Mailing_street_address_zip','ncid','latitude','longitude',
+                                          'geometry']]
+
+##Write output
+gdfVoter_out.to_file(voter_shapefile_name)
+gdfVoter_out.drop(['geometry'],axis=1).to_csv(voter_shapefile_name[:-3]+'csv',index=False)
+
+##Write metdatada
+with open(voter_shapefile_name[:-4]+"README.txt",'w') as meta:
+    meta.write('''Organizational Voting Units.
+These are Census blocks that are majority black and have at least 50 black households (BHH).
+Adjacent census blocks with fewer than 50 BHH are aggregated together until 100 BHH are found.
+
+Data dictionary:
+    'RandomID'
+    'Gender'
+    'Race'
+    'MECE'
+    'Residential street address'
+    'Residential street address line 2'
+    'Residential street address zip'
+    'Mailing street address'
+    'Mailing street address line 2'
+    'Mailing street address zip'
+    'ncid'
+    'Latitude'
+    'Longitude'
+
     
     ''')
