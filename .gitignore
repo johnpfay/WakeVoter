@@ -20,6 +20,8 @@ GIS/ImportLog/*
 data/WAKE/*
 data/DURHAM/*
 data/MECKLENBURG/*
+data/Alamance/*
+data/ALEXANDER/*
 data/Census/*
 data/CDR/*
 APIkey.txt
