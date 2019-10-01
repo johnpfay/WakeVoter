@@ -17,11 +17,7 @@ GIS/Index/*
 GIS/*.gdb/*
 GIS/ImportLog/*
 
-data/WAKE/*
-data/DURHAM/*
-data/MECKLENBURG/*
-data/Alamance/*
-data/ALEXANDER/*
+data/OUTPUT/*
 data/Census/*
 data/CDR/*
 APIkey.txt
