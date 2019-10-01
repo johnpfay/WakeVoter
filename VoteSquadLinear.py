@@ -177,7 +177,7 @@ file_list = glob.glob(NCSBE_folder+'/**/address_points_{}.csv'.format(county_nam
 if len(file_list) > 0:
     county_address_file = file_list[0]
     print(" Found county address file:\n  [{}]".format(county_address_file))
-    dfCountyAddresses = pd.read_csv(county_address_file,sep='\t',dtype='str')
+    dfCountyAddresses = pd.read_csv(county_address_file,dtype='str')
 else: 
     print(" Building country address file...")
 
@@ -189,10 +189,10 @@ else:
     #Read in the data, using the metadata to supply column names
     dfStateAddresses = pd.read_csv(state_address_file,sep='\t',dtype='str',
                                    header=None,index_col=0,names = columns)
-    print("   ...{} statewide records loaded".format(dfState.shape[0]))
+    print("   ...{} statewide records loaded".format(dfStateAddresses.shape[0]))
     #Extract Wake Co addresses and save
-    dfCountyAddresses = dfState[dfState.county == county_name]
-    print("   ...{} county records extracted".format(dfCounty.shape[0]))
+    dfCountyAddresses = dfStateAddresses[dfStateAddresses.county == county_name]
+    print("   ...{} county records extracted".format(dfCountyAddresses.shape[0]))
     #Save to a file
     county_address_file = state_address_file.replace('sboe.txt','{}.csv'.format(county_name))
     dfCountyAddresses.to_csv(county_address_file,index=False)
@@ -204,7 +204,7 @@ del file_list
 print("1d. Computing MECE scores for {} voters".format(county_name))  
 #Read the data into a dataframe (if not done already)
 if not 'dfStateHistory' in (dir()):
-    print("   Reading in state voting history file. [Be patient]")
+    print("    Reading in state voting history file. [Be patient]")
     dfStateHistory = pd.read_csv(state_voter_history_file,sep='\t',
                                  usecols=('county_desc','election_lbl','ncid'))
 
@@ -250,43 +250,93 @@ dfVoterMECE.loc[~e17 & ~e18 & ~e16 & ~e12, "MECE"] = 5
 #Clean up 
 del e12,e16,e17,e18, elections, dfSubset
 
-#%% GEOCODE VOTER REGISTRATION DATA
+#%% CONVERT REGISTRATION DATA TO SPATIAL FEATURES
+print("1e. Converting {} voter data to spatial features".format(county_name.title()))
 
-#%% COMPUTE MECE SCORES FOR VOTERS
-print("1d. Computing MECE scores for {} voters".format(county_name))
+#Read state registration data into dataframe, if not done already
+if not "dfStateRegistration" in dir():
+    print("    Reading in the voter registration data file [be patient]...")
+    dfStateRegistration = pd.read_csv(state_voter_reg_file,
+                                      usecols=['county_desc','voter_reg_num','res_street_address',
+                                               'res_city_desc','state_cd','zip_code','precinct_abbrv',
+                                               'race_code','ethnic_code','gender_code','ncid',
+                                               'mail_addr1','mail_city','mail_state','mail_zipcode',
+                                               'full_phone_number','birth_age','voter_reg_num',
+                                               'last_name','first_name','middle_name','precinct_abbrv'],
+                                               sep='\t',
+                                               dtype='str',
+                                               encoding = "ISO-8859-1",low_memory=False)
 
-#Construct a dataframe of 
-dfVoterMECE = get_county_voter_MECE_data(state_voter_history_file,county_name)
-    #See if the county file already exists, if so create and return a dataframe
-    file_list = glob.glob(NCSBE_folder+'/**/address_points_{}.csv'.format(county_name),recursive=True)
-    if len(file_list) > 0:
-        county_address_file = file_list[0]
-        print(" Found county address file:\n  [{}]".format(county_address_file))
-        return county_address_file
-    else: 
-        print(" Building country address file...")
+
     
-    #Get the state address file (this will pull it, if needed)
-    state_address_file = get_state_address_file(NCSBE_folder)
-    #Get the associated metadata file (containing counties)
-    state_address_metadata = glob.glob(NCSBE_folder+'/**/address_points_data_format.txt',recursive=True)[0] 
+
+#Select records for the provided county name - into a new dataframe
+print("    Selecting records for {} county...".format(county_name),end='')
+dfCountyRegistration = dfStateRegistration[dfStateRegistration['county_desc'] == county_name.upper()].reindex()
+print(" {} records selected".format(dfCountyRegistration.shape[0]))
+
+
+#Drop the county name from the table and set the voter registration # as index
+print("    Tidying data...")
+dfCountyRegistration.drop('county_desc',axis=1,inplace=True)
+dfCountyRegistration.set_index('voter_reg_num',inplace=True)
+#Drop rows with no address data
+dfCountyRegistration.dropna(how='any',inplace=True,
+                subset=['res_street_address','res_city_desc','state_cd','zip_code'])
+#Remove double spaces from the residential address field 
+dfCountyRegistration['res_street_address'] = dfCountyRegistration['res_street_address'].apply(lambda x: ' '.join(x.split()))
+
+#Join coords from address file to county registration data
+print("    Joining coordinates to voter data")
+dfCountyRegistration = pd.merge(left=dfCountyRegistration,
+                                 left_on=['res_street_address','res_city_desc','zip_code'],
+                                 right=dfCountyAddresses,
+                                 right_on=['st_address','city','zip'],
+                                 how='left')
+
+#Drop records that weren't geocoded
+dfCountyRegistration.dropna(axis=0,subset=['longitude','latitude'],inplace=True)
+
+#%% APPEND MECE SCORES TO COUNTY REGISTRATION DATA
+print("1f. Appending MECE scores to {} registration data".format(county_name.title()))
+
+#Merge MECE scores to County Registration data
+print("    Merging  MECE scores")
+dfCountyRegistration = pd.merge(dfCountyRegistration,
+                                dfVoterMECE,
+                                how = 'left',
+                                left_on='ncid',
+                                right_on='ncid')
+
+#Update records with no voting history as MECE = 5
+print("    Updating null scores to MECE = 5")
+dfCountyRegistration.loc[dfCountyRegistration.MECE.isnull(),"MECE"] = 5
+
+#Convert to geodataframe
+print("   Converting to spatial dataframe")
+from shapely.geometry import Point
+geom = [Point(x,y) for x,y in zip(dfCountyRegistration.longitude,dfCountyRegistration.latitude)]
+gdfVoter = gpd.GeoDataFrame(dfCountyRegistration,geometry=geom,crs={'init':'epsg:4269'})
+
+#Save the geodataframe, if a voter shapefile name is set
+if voter_shapefile_name:
+    print("  Saving to {} [Be patient...]".format(voter_shapefile_name))
+    gdfVoter.to_file(voter_shapefile_name,filetype='Shapefile')
     
-    #Generate a list of columns from the metadata file 
-    print("...Generating statewide address dataframe...")
-    with open(state_address_metadata,'r') as colFile:
-        theText = colFile.readlines()
-        columns = [theLine.split("\n")[0].split()[0] for theLine in theText[7:]]
-    #Read in the data, using the metadata to supply column names
-    dfState = pd.read_csv(state_address_file,sep='\t',dtype='str',
-                          header=None,index_col=0,names = columns)
-    print("   ...{} statewide records loaded".format(dfState.shape[0]))
-    #Extract Wake Co addresses and save
-    dfCounty = dfState[dfState.county == county_name]
-    print("   ...{} county records extracted".format(dfCounty.shape[0]))
-    #Save to a file
-    county_address_file = state_address_file.replace('sboe.txt','{}.csv'.format(county_name))
-    print(" County address file created:\n  [{}]".format(county_address_file))
-    dfCounty.to_csv(county_address_file,index=False)
+    #Write projection to .prj file
+    with open(voter_shapefile_name[:-3]+'prj','w') as outPrj:
+        outPrj.write('GEOGCS["GCS_North_American_1983",'+
+                     'DATUM["D_North_American_1983",'+
+                     'SPHEROID["GRS_1980",6378137.0,298.257222101]],'+
+                     'PRIMEM["Greenwich",0.0],'+
+                     'UNIT["Degree",0.0174532925199433]]')
+    
+    #Write metadata  to .txt file
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    with open(voter_shapefile_name[:-3]+'txt','w') as outTxt:
+        outTxt.write('Voter registration data for {} Co. extracted from\n'.format(county_name))
+        outTxt.write('NC SBE: https://www.ncsbe.gov/data-stats/other-election-related-data\n')
+        outTxt.write('File created on {}'.format(current_date))
 
 
 #%% FUNCTIONS
