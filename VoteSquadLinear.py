@@ -51,6 +51,63 @@ speedups.enable()
 import os, requests, zipfile, io, glob
 from datetime import datetime
 
+#Census API key
+print('Getting the census API key')
+censusKey = open("APIkey.txt","r").readline()
+print("This product uses the Census Bureau Data API but ")
+print("is not endorsed or certified by the Census Bureau.")
+
+#%% FUNCTIONS
+def _get_block_attributes(st_fips,co_fips,api_key):
+    '''Retrieves race composition data using the Census API
+    
+    Description: Pulls the following block level data from the 2010 SF1 file:
+        P003001 - Total population 
+        P003003 - Total Black or African American population
+        P010001 - Total population 18 years and older
+        P010004 - Total Black/African-American population 18 years or older
+    Then compute pct Black and pct Black (18+) columns along with 
+    
+    Args:
+        st_fips(str): State FIPS code (e.g. '37')
+        co_fips(str): County FIPS code (e.g. '183')
+        output_csv(str): Filename to save data
+        api_key(str): Census API key
+        
+    Returns:
+        geodataframe of census blocks for the county
+    '''
+   #Census API call to get the data for the proivded state/county 
+    theURL = 'https://api.census.gov/data/2010/dec/sf1'
+    params = {'get':'P003001,P003003,P010001,P010004',
+              'for':'block:*',
+              'in':'state:{}%county:{}'.format(st_fips,co_fips),
+              'key':api_key
+         }
+    #Send the request and convert the response to JSON format
+    print("   ...downloading data from {}".format(theURL))
+    response = requests.get(theURL,params) 
+    response_json = response.json()
+    #Convert JSON to pandas dataframe
+    print("   ...cleaning data...")
+    dfData = pd.DataFrame(response_json[1:],columns=response_json[0])
+    #Convert block data columns to numeric
+    floatColumns = ['P003001','P003003','P010001','P010004']
+    dfData[floatColumns] = dfData[floatColumns].apply(pd.to_numeric)
+    #Combine columns into single GEOID10 attribute
+    dfData['GEOID10'] = dfData.state+dfData.county+dfData.tract+dfData.block
+    #Compute percentages
+    dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
+    dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
+
+    #Set null values to zero
+    dfData.fillna(0,inplace=True)
+    #Remove GEOID component columns
+    dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
+
+    #Return the dataframe
+    return dfData
+
 #%% RUN TIME VARIABLES
 
 #Set data locations
@@ -67,13 +124,11 @@ dfCounties = pd.read_csv(data_url,
 dfCounties['cname'] = dfCounties['cnamelong'].str.split(pat=' ',expand=True)[0] 
 
 #Iterate for county
+state_fips = '37'
 for i,row in dfCounties.iterrows():
     county_fips = row['county']
     county_name = row['cname'].upper()
     break
-
-#Set NCSBE data folder (holds state voting registration and history data)
-NCSBE_folder ='.\\data\\NCSBE\\nvhist' 
 
 #Create a folder to hold county data
 COUNTY_folder = '.\\data\\OUTPUT\\{}'.format(county_name)
@@ -339,189 +394,142 @@ if voter_shapefile_name:
         outTxt.write('NC SBE: https://www.ncsbe.gov/data-stats/other-election-related-data\n')
         outTxt.write('File created on {}'.format(current_date))
 
+#%% GET COUNTY BLOCK FEATURES
+print("2. Extracting state block features into a geodataframe")
 
-#%% FUNCTIONS
-
-
-        
-def get_block_features(st_fips,co_fips,output_shapefile,api_key):
-    '''Imports census block features for the supplied county FIPS code
+#Data URL for fetching data
+dataURL = 'https://www2.census.gov/geo/tiger/TIGER2010BLKPOPHU/tabblock2010_{}_pophu.zip'.format(state_fips)
     
-    Description:
-        Extracts 2010 census block features for the provided county into a 
-        geodataframe, retrieves race composition attributes, and then joins
-        these attributes (population, black population, population 18+, 
-        black population 18+, and percentages) to the blocks. 
-        
-        Census feature data are from 'https://www2.census.gov/geo/tiger/'.
-        
-        If a shapefile name is provided, the data are saved to that name. Otherwise,
-        just the geodataframe is returned.
-    
-    Args:
-        st_fips(str): State FIPS code (e.g. '37')
-        co_fips(str): County FIPS code (e.g. '183')
-        df_attributes(dataframe): dataframe of block attributes
-        output_shapefile(str)[optional]: Name to save output shapefile
-        api_key(str): Census API key
-        
-    Returns:
-        Geodataframe of census blocks for the county with race data
-    '''
-    #Data URL for fetching data
-    dataURL = 'https://www2.census.gov/geo/tiger/TIGER2010BLKPOPHU/tabblock2010_{}_pophu.zip'.format(st_fips)
-        
-    #See if the data have already been pulled; if so, read into dataframe and return
-    if os.path.exists(output_shapefile):
-        print("  Data already downloaded\n  [{}]".format(output_shapefile))
-        print("  ...reading data into a dataframe")
-        gdfBlocks = gpd.read_file(output_shapefile)
-        return gdfBlocks
+#See if the data have already been pulled; if so, read into dataframe and return
+if os.path.exists(block_shapefile_filename):
+    print("  Data already downloaded\n  [{}]".format(block_shapefile_filename))
+    print("  ...reading data into a dataframe")
+    gdfBlocks = gpd.read_file(block_shapefile_filename)
 
-    #See if the statewide block shapefile has been downloaded
-    stateCensusBlocksFile = './data/Census/StateBlocks.shp'
-    if os.path.exists(stateCensusBlocksFile):
-        print("  Creating dataframe from existing state block feature class.")
-        fcStBlocks = gpd.read_file(stateCensusBlocksFile)
-    else:     #Pull the state block data for the supplied FIPS code
-        print("   Downloading blocks for state FIPS {}; this take a few minutes...".format(st_fips))
-        fcStBlocks = gpd.read_file(dataURL)
-        fcStBlocks.to_file(stateCensusBlocksFile)
-    
-    #Subset county blocks
-    print("   Subsetting data for County FIPS {} ".format(co_fips))
-    fcCoBlocks = fcStBlocks[fcStBlocks.COUNTYFP10 == co_fips]
+#Otherwise download and create the file
+else:
+    #Read the STATE block file into memory, if not already
+    if not "fcStBlocks" in dir(): 
+        #See if the statewide block shapefile has been downloaded
+        stateCensusBlocksFile = './data/Census/StateBlocks.shp'
+        if os.path.exists(stateCensusBlocksFile):
+            print("   Creating dataframe from existing state block feature class.")
+            gdfStBlocks = gpd.read_file(stateCensusBlocksFile)
+        else:     #Pull the state block data for the supplied FIPS code
+            print("    Downloading blocks for state FIPS {}; this take a few minutes...".format(state_fips))
+            gdfStBlocks = gpd.read_file(dataURL)
+            gdfStBlocks.to_file(stateCensusBlocksFile)
+
+    #Subset county blocks from state blocks
+    print("   Subsetting data for County FIPS {} ".format(county_fips))
+    gdfCoBlocks = gdfStBlocks[gdfStBlocks.COUNTYFP10 == county_fips]
     
     #Retrieve block attribute data
     print("   Fetching block attribute data")
-    dfAttribs = _get_block_attributes(st_fips,co_fips,api_key)
-    fcCoBlocks =  pd.merge(left=fcCoBlocks,left_on='BLOCKID10',
-                           right=dfAttribs,right_on='GEOID10',
-                           how='outer')
+    dfAttribs = _get_block_attributes(state_fips,county_fips,censusKey)
+    gdfCoBlocks =  pd.merge(left=gdfCoBlocks,left_on='BLOCKID10',
+                            right=dfAttribs,right_on='GEOID10',
+                            how='outer')
+    #Clean up
+    del dfAttribs
     
     #Add field for number of black households
-    fcCoBlocks['BlackHH'] = round(fcCoBlocks.HOUSING10 * fcCoBlocks.PctBlack / 100).astype('int')
+    gdfCoBlocks['BlackHH'] = round(gdfCoBlocks.HOUSING10 * gdfCoBlocks.PctBlack / 100).astype('int')
     
-    #If no output name is given, just return the geodataframe
-    if output_shapefile == '': return fcCoBlocks
-    
-    #Otherwise, save to a file
-    print("Saving to {}".format(output_shapefile))
-    fcCoBlocks.to_file(output_shapefile,filetype='Shapefile')
-    
-    #Write projection to .prj file
-    with open(output_shapefile[:-3]+'prj','w') as outPrj:
-        outPrj.write('GEOGCS["GCS_North_American_1983",'+
-                     'DATUM["D_North_American_1983",'+
-                     'SPHEROID["GRS_1980",6378137.0,298.257222101]],'+
-                     'PRIMEM["Greenwich",0.0],'+
-                     'UNIT["Degree",0.0174532925199433]]')
-    
-    #Write metadata  to .txt file
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    with open(output_shapefile[:-3]+'txt','w') as outTxt:
-        outTxt.write('Census block data for FIPS{}{} extracted from\n'.format(st_fips,co_fips) +
-                     dataURL + '\non {}.\n\n'.format(current_date) )
-        outTxt.write('The following attributes were collected from\n' +
-                     'https://api.census.gov/data/2010/dec/sf1 and joined:\n' +
-                     '\tP003001 - Total population\n' +
-                     '\tP003003 - Total Black or African American population\n' +
-                     '\tP010001 - Total population 18 years and older\n' +
-                     '\tP010004 - Total Black/African-American population 18 years or older\n\n')
-        outTxt.write('[PctBlack] computed as [P003003] / [P003001] * 100)\n')
-        outTxt.write('[PctBlack18] computed as [P010004] / [P010001] * 100)\n')
-        outTxt.write('[BlackHH] computed as [HOUSING10] * [PctBlack]), rounded to the nearest integer')
+    #Save to a shapefile, if one is given
+    if block_shapefile_filename != '':
+        print("    Saving to {}".format(block_shapefile_filename))
+        gdfCoBlocks.to_file(block_shapefile_filename,filetype='Shapefile')
         
-    #Return the geodataframe
-    return fcCoBlocks
-        
-def _get_block_attributes(st_fips,co_fips,api_key):
-    '''Retrieves race composition data using the Census API
-    
-    Description: Pulls the following block level data from the 2010 SF1 file:
-        P003001 - Total population 
-        P003003 - Total Black or African American population
-        P010001 - Total population 18 years and older
-        P010004 - Total Black/African-American population 18 years or older
-    Then compute pct Black and pct Black (18+) columns along with 
-    
-    Args:
-        st_fips(str): State FIPS code (e.g. '37')
-        co_fips(str): County FIPS code (e.g. '183')
-        output_csv(str): Filename to save data
-        api_key(str): Census API key
-        
-    Returns:
-        geodataframe of census blocks for the county
-    '''
-   #Census API call to get the data for the proivded state/county 
-    theURL = 'https://api.census.gov/data/2010/dec/sf1'
-    params = {'get':'P003001,P003003,P010001,P010004',
-              'for':'block:*',
-              'in':'state:{}%county:{}'.format(st_fips,co_fips),
-              'key':api_key
-         }
-    #Send the request and convert the response to JSON format
-    print("   ...downloading data from {}".format(theURL))
-    response = requests.get(theURL,params) 
-    response_json = response.json()
-    #Convert JSON to pandas dataframe
-    print("   ...cleaning data...")
-    dfData = pd.DataFrame(response_json[1:],columns=response_json[0])
-    #Convert block data columns to numeric
-    floatColumns = ['P003001','P003003','P010001','P010004']
-    dfData[floatColumns] = dfData[floatColumns].apply(pd.to_numeric)
-    #Combine columns into single GEOID10 attribute
-    dfData['GEOID10'] = dfData.state+dfData.county+dfData.tract+dfData.block
-    #Compute percentages
-    dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
-    dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
-
-    #Set null values to zero
-    dfData.fillna(0,inplace=True)
-    #Remove GEOID component columns
-    dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
-
-    #Return the dataframe
-    return dfData
-
-def append_blockdata_to_voterpoints(gdf_voter,gdf_blocks,output_shapefile):
-    '''Spatially joins block attributes to each voter point. Saves the result 
-    the feature class provided. 
-    
-    Args: 
-        gdf_voter(geodataframe): geo dataframe of voter points
-        gdf_blocks(geodataframe): geo dataframe of census blocks
-        
-    Returns:
-        geodataframe of voter points with Block attributes.
-    '''
-    print("  Performing spatial join")
-    gdf = gpd.sjoin(gdf_voter,gdf_blocks,how='left',op='within')
-    print("  ...removing extraneous columns")
-    gdf.drop(columns=['index_right','STATEFP10', 'COUNTYFP10', 'TRACTCE10', 
-                      'BLOCKCE', 'GEOID10', 'PARTFLG'],axis='columns',inplace=True)
-    
-    #Save dataframe, if one is given
-    if output_shapefile:
-        #Save to shapfile, if extension is ".shp"
-        if output_shapefile[-4:] == '.shp':
-            print("  Saving geodataframe as shapefile. [Be patient...]")
-            gdf.to_file(output_shapefile,format='shapefile')
-        else: #Otherwise, save to csv
-            print("  Saving geodataframe as CSV file...")
-            gdf.to_csv(output_shapefile,index_label="OID")
+        #Write projection to .prj file
+        with open(block_shapefile_filename[:-3]+'prj','w') as outPrj:
+            outPrj.write('GEOGCS["GCS_North_American_1983",'+
+                         'DATUM["D_North_American_1983",'+
+                         'SPHEROID["GRS_1980",6378137.0,298.257222101]],'+
+                         'PRIMEM["Greenwich",0.0],'+
+                         'UNIT["Degree",0.0174532925199433]]')
         
         #Write metadata  to .txt file
-        print('   ...writing metadata.')
         current_date = datetime.now().strftime("%Y-%m-%d")
-        with open(output_shapefile[:-3]+'txt','w') as outTxt:
-            outTxt.write('Voter registration and history data for {} Co. extracted from\n'.format(county_name))
-            outTxt.write('NC SBE: https://www.ncsbe.gov/data-stats/other-election-related-data\n')
-            outTxt.write('Census block data appended to points.\n\n')
-            outTxt.write('File created on {}'.format(current_date))
-            
-    return gdf
+        with open(block_shapefile_filename[:-3]+'txt','w') as outTxt:
+            outTxt.write('Census block data for FIPS{}{} extracted from\n'.format(state_fips,county_fips) +
+                         dataURL + '\non {}.\n\n'.format(current_date) )
+            outTxt.write('The following attributes were collected from\n' +
+                         'https://api.census.gov/data/2010/dec/sf1 and joined:\n' +
+                         '\tP003001 - Total population\n' +
+                         '\tP003003 - Total Black or African American population\n' +
+                         '\tP010001 - Total population 18 years and older\n' +
+                         '\tP010004 - Total Black/African-American population 18 years or older\n\n')
+            outTxt.write('[PctBlack] computed as [P003003] / [P003001] * 100)\n')
+            outTxt.write('[PctBlack18] computed as [P010004] / [P010001] * 100)\n')
+            outTxt.write('[BlackHH] computed as [HOUSING10] * [PctBlack]), rounded to the nearest integer')
+        
+        #Clean up
+        del current_date
+
+#%% JOIN BLOCK NUMBER TO VOTER REG DATA
+print("2b. Tagging voter data with block numbers")     
+#def append_blockdata_to_voterpoints(gdf_voter,gdf_blocks,output_shapefile):
+'''Spatially joins block attributes to each voter point. Saves the result 
+the feature class provided. 
+
+Args: 
+    gdf_voter(geodataframe): geo dataframe of voter points
+    gdf_blocks(geodataframe): geo dataframe of census blocks
+    
+Returns:
+    geodataframe of voter points with Block attributes.
+'''
+print("   Spatially joining block ID to voter features")
+gdfVoter = gpd.sjoin(gdfVoter,gdfCoBlocks,how='left',op='within')
+print("   ...removing extraneous columns")
+gdfVoter.drop(columns=['index_right','STATEFP10', 'COUNTYFP10', 'TRACTCE10', 
+                       'BLOCKCE', 'GEOID10', 'PARTFLG'],axis='columns',inplace=True)
+
+#Save dataframe, if one is given
+if voter_shapefile_name:
+    #Save to shapfile, if extension is ".shp"
+    if voter_shapefile_name[-4:] == '.shp':
+        print("  Saving geodataframe as shapefile. [Be patient...]")
+        gdfVoter.to_file(voter_shapefile_name,format='shapefile')
+    else: #Otherwise, save to csv
+        print("  Saving geodataframe as CSV file...")
+        gdfVoter.to_csv(voter_shapefile_name,index_label="OID")
+    
+    #Write metadata  to .txt file
+    print('   ...writing metadata.')
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    with open(voter_shapefile_name[:-3]+'txt','w') as outTxt:
+        outTxt.write('Voter registration and history data for {} Co. extracted from\n'.format(county_name))
+        outTxt.write('NC SBE: https://www.ncsbe.gov/data-stats/other-election-related-data\n')
+        outTxt.write('Census block data appended to points.\n\n')
+        outTxt.write('File created on {}'.format(current_date))
+#%% EXTRACT VOTERS IN MAJORITY BLACK BLOCKS
+
+#%% SUBSET MAJORITY BLACK BLOCKS
+
+#%% JOIN MECE DATA TO BLACK BLOCKS
+
+#%% SAVE BLACK BLOCKS WITH > 50 BLACK HH: TURFS_1
+
+#%% EXTRACT BLACK BLOCKS WITH < 50 BLACK HH FOR CLUSTERING
+
+#%% CLUSTER ADJACENT SELECTED BLOCKS -> AGG BLOCKS
+
+#%% DISSOLVE AND UPDATE MECE STATS FOR AGG BLOCKS
+
+#%% REMOVE AGG BLOCKS WITH < 50 BLACK HH 
+        
+#%% SAVE AGG BLOCKS WITH < 100 BLACK HH: TURFS_2
+
+#%% INCREMENTALLY BLOCKS IN AGG BLOCKS WITH > BLACK HH: TURFS_3
+
+#%% MERGE TURF SETS 
+        
+#%%
+
+
+
     
 def subset_voter_points(gdf_voters,output_shapefile=''):
     '''Returns a dataframe of just black voters in blocks that are majority black
@@ -587,41 +595,8 @@ def tally_block_MECE_scores(gdf_voter):
 
     return df_MECE
 
-#%% main
 
-
-#%% Get Statewide voter registration data
-#Get the NC SBE voter registration and history files for the county 
-
-
-print("1c. Computing MECE scores for {} voters".format(county_name))
-dfVoterMECE = get_county_voter_MECE_data(state_voter_history_file,county_name)
-
-#Get the file of NC SBE address s for the state (if needed) and then the county subset
-print("1d. Getting address data for {} county".format(county_name))
-county_address_file = get_county_address_file(county_name,NCSBE_folder)
-
-#Retrieve voter features
-print("1e. Converting voting data to spatial features")
-gdfVoter1 = get_voter_data(state_voter_reg_file,
-                          county_address_file,
-                          county_name,
-                          dfVoterMECE,"")
 #%% PART 2. CENSUS DATA
-
-#Get the Census API key
-print('2a. Getting the census API key')
-censusKey = open("APIkey.txt","r").readline()
-print("This product uses the Census Bureau Data API but ")
-print("is not endorsed or certified by the Census Bureau.")
-
-#Get the Census block features and attributes for the county
-print('2b. Fetching/reading census block features')
-gdfBlocks = get_block_features(state_fips,county_fips,block_shapefile_filename,censusKey)
-
-#Join blocks to voter points
-print('2c. Joining block data to voter features')
-gdfVoter = append_blockdata_to_voterpoints(gdfVoter1,gdfBlocks,'')#voter_shapefile_name)
 
 #Subset voter points
 print('2d. Extracting black voters in majority black blocks')
