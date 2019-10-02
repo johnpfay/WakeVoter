@@ -57,6 +57,46 @@ censusKey = open("APIkey.txt","r").readline()
 print("This product uses the Census Bureau Data API but ")
 print("is not endorsed or certified by the Census Bureau.")
 
+#%% RUN TIME VARIABLES
+
+#Set data locations
+NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
+CENSUS_folder = '.\\data\\Census'  #Folder containing Census data
+
+#Get NC County data
+data_url = 'https://transition.fcc.gov/form477/Geo/CensusBlockData/CSVFiles/North%20Carolina.zip'
+dfCounties = (pd.read_csv(data_url,
+                         usecols=('county','cnamelong'),
+                         dtype='str').                   
+            drop_duplicates(keep='first').
+            reset_index())
+            
+#Create column of just county name (drop " county")
+dfCounties['cname'] = dfCounties['cnamelong'].str.split(pat=' ',expand=True)[0] 
+
+#Iterate for county
+state_fips = '37'
+for i,row in dfCounties.iterrows():
+    county_fips = row['county']
+    county_name = row['cname'].upper()
+    if i == 2: break
+
+print("Processing {} county".format(county_name.title()))
+
+#Create a folder to hold county data
+COUNTY_folder = '.\\data\\OUTPUT\\{}'.format(county_name)
+if not(os.path.exists(COUNTY_folder)):
+    os.mkdir(COUNTY_folder)
+
+#Set the output filenames
+fnVoterShapefile = os.path.join(COUNTY_folder,'{}_voter_points.shp'.format(county_name))
+fnVoterShapefileSubset = os.path.join(COUNTY_folder,'{}_voter_subset_points.shp'.format(county_name))
+fnBlockShapefile = os.path.join(COUNTY_folder,'{}_blocks.shp'.format(county_name))
+fnOrgunitsShapefile = os.path.join(COUNTY_folder,'{}_orgunits.shp'.format(county_name))
+
+#Clean up
+del i, row, data_url, dfCounties
+
 #%% FUNCTIONS
 def _get_block_attributes(st_fips,co_fips,api_key):
     '''Retrieves race composition data using the Census API
@@ -108,42 +148,6 @@ def _get_block_attributes(st_fips,co_fips,api_key):
     #Return the dataframe
     return dfData
 
-#%% RUN TIME VARIABLES
-
-#Set data locations
-NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
-CENSUS_folder = '.\\data\\Census'  #Folder containing Census data
-
-
-#Get NC County data
-data_url = 'https://transition.fcc.gov/form477/Geo/CensusBlockData/CSVFiles/North%20Carolina.zip'
-dfCounties = pd.read_csv(data_url,
-                         usecols=('county','cnamelong'),
-                         dtype='str').drop_duplicates(keep='first')
-#Create column of just county name (drop " county")
-dfCounties['cname'] = dfCounties['cnamelong'].str.split(pat=' ',expand=True)[0] 
-
-#Iterate for county
-state_fips = '37'
-for i,row in dfCounties.iterrows():
-    county_fips = row['county']
-    county_name = row['cname'].upper()
-    break
-
-#Create a folder to hold county data
-COUNTY_folder = '.\\data\\OUTPUT\\{}'.format(county_name)
-if not(os.path.exists(COUNTY_folder)):
-    os.mkdir(COUNTY_folder)
-
-#Set the output filenames
-fnVoterShapefile = os.path.join(COUNTY_folder,'{}_voter_points.shp'.format(county_name))
-fnVoterShapefileSubset = os.path.join(COUNTY_folder,'{}_voter_subset_points.shp'.format(county_name))
-fnBlockShapefile = os.path.join(COUNTY_folder,'{}_blocks.shp'.format(county_name))
-fnOrgunitsShapefile = os.path.join(COUNTY_folder,'{}_orgunits.shp'.format(county_name))
-
-#Clean up
-del i, row, data_url, dfCounties
-
 #%% 1a. Fetch statewide voter registration data
 print("1a. Getting statewide voting registration data")
 
@@ -151,19 +155,19 @@ print("1a. Getting statewide voting registration data")
 file_list = glob.glob(NCSBE_folder+'/**/ncvoter_Statewide.txt',recursive=True)
 if len(file_list) > 0:
     state_voter_reg_file = file_list[0]
-    print("  File already downloaded")
+    print("   File already downloaded")
 #Otherwise download
 else:
     #Fetch and unzip the file
-    print("  Retrieving registration file from NC SBE server [Be patient...]")
+    print("   Retrieving registration file from NC SBE server [Be patient...]")
     fileURL = 'http://dl.ncsbe.gov/data/ncvoter_Statewide.zip'
     r = requests.get(fileURL)
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    print("   Unpacking data...")
+    print("    Unpacking data...")
     z.extractall(NCSBE_folder)
     #Get the file path
     state_voter_reg_file = glob.glob(NCSBE_folder+'/**/ncvoter_Statewide.txt',recursive=True)[0]
-    print("   Voter registration data stored as\n  [{}]".format(state_voter_reg_file))
+    print("    Voter registration data stored as\n  [{}]".format(state_voter_reg_file))
     #Clean up 
     del r,z
 
@@ -177,11 +181,11 @@ print("1b. Getting statewide voting history data")
 file_list = glob.glob(NCSBE_folder+'/**/ncvhis_Statewide.txt',recursive=True)
 if len(file_list) > 0:
     state_voter_history_file = file_list[0]
-    print("  File already downloaded")
+    print("   File already downloaded")
 #Otherwise download
 else:
     #Fetch and unzip the file
-    print(" Retrieving address file from NC SBE server [Be patient...]")
+    print("   Retrieving address file from NC SBE server [Be patient...]")
     fileURL = 'http://dl.ncsbe.gov/data/ncvhis_Statewide.zip'
     r = requests.get(fileURL)
     z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -203,10 +207,10 @@ print("1c. Getting statewide voting address data")
 file_list = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)
 if len(file_list) > 0:
     state_address_file = file_list[0]
-    print("  File already downloaded")
+    print("   File already downloaded")
 
 else: #Otherwise retrieve the file from the NC SBE server
-    print(" Retrieving address file from NC SBE server [Be patient...]")
+    print("   Retrieving address file from NC SBE server [Be patient...]")
     fileURL = 'https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip'
     r = requests.get(fileURL)
     z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -265,8 +269,8 @@ else: #Subset county data from state data
 #Clean up
 del file_list
 
-#%% 1d. Compute county MECE scores
-print("1d. Computing MECE scores for {} voters".format(county_name))  
+#%% 1e. Compute county MECE scores
+print("1e. Computing MECE scores for {} voters".format(county_name))  
 #Read the data into a dataframe (if not done already)
 if not 'dfStateHistory' in (dir()):
     print("    Reading in state voting history file. [Be patient]")
@@ -274,16 +278,16 @@ if not 'dfStateHistory' in (dir()):
                                  usecols=('county_desc','election_lbl','ncid'))
 
 #Subset records for the county
-print(" Subseting county voting history records")
+print("   Subseting county voting history records")
 dfCountyHistory = dfStateHistory[dfStateHistory['county_desc']==county_name]
 
 #Subset records for the elections of interest
-print(" Subsetting election data")
+print("   Subsetting election data")
 elections = ('10/10/2017','11/07/2017','11/06/2018','11/08/2016','11/06/2012')
 dfSubset = dfCountyHistory.loc[dfCountyHistory.election_lbl.isin(elections),:]
 
 #Pivot on these elections
-print(" Determining MECE scores",end="")
+print("   Determining MECE scores",end="")
 dfVoterMECE = pd.pivot_table(dfSubset,
                              columns = 'election_lbl',
                              index = 'ncid',
@@ -315,8 +319,8 @@ dfVoterMECE.loc[~e17 & ~e18 & ~e16 & ~e12, "MECE"] = 5
 #Clean up 
 del e12,e16,e17,e18, elections, dfSubset
 
-#%% 1e. Convert registgration data to spatial features
-print("1e. Converting {} voter data to spatial features".format(county_name.title()))
+#%% 1f. Convert registgration data to spatial features
+print("1f. Converting {} voter data to spatial features".format(county_name.title()))
 
 #Read state registration data into dataframe, if not done already
 if not "dfStateRegistration" in dir():
@@ -359,8 +363,8 @@ dfCountyRegistration = pd.merge(left=dfCountyRegistration,
 #Drop records that weren't geocoded
 dfCountyRegistration.dropna(axis=0,subset=['longitude','latitude'],inplace=True)
 
-#%% 1f. Append MECE scores to county registration data
-print("1f. Appending MECE scores to {} registration data".format(county_name.title()))
+#%% 1g. Append MECE scores to county registration data
+print("1g. Appending MECE scores to {} registration data".format(county_name.title()))
 
 #Merge MECE scores to County Registration data
 print("    Merging  MECE scores to voter dataframe")
@@ -404,7 +408,7 @@ if fnVoterShapefile:
         outTxt.write('File created on {}'.format(current_date))
 '''
 #%% 2a. Extract state block features to geodataframe
-print("STEP 2: CENSUS DATA PROCESSING")
+print("\n\nSTEP 2: CENSUS DATA PROCESSING")
 print("2a. Extracting state block features into a geodataframe")
 
 #See if the data have already been pulled; if so, read into dataframe and return
@@ -515,6 +519,12 @@ print('2c. Extracting black voters in majority black blocks')
 mask_Voter = gdfVoter['race_code'] == 'B'
 mask_Block = gdfVoter['PctBlack'] >= 50
 gdfBlackVoter = gdfVoter.loc[mask_Voter & mask_Block]
+
+#HALT IF NO MAJORITY BLACK BLOCKS
+if gdfBlackVoter.shape[0] == 0:
+    print("{0}\nNO MAJORTY BLACK BLOCKS IN {1} COUNTY. EXITING\n{0}".format(20*"-",county_name.upper()))
+    import sys
+    sys.exit(0)
 if fnVoterShapefileSubset:
     #Save to shapfile, if extension is ".shp"
     if fnVoterShapefileSubset[-4:] == '.shp':
@@ -547,12 +557,14 @@ dfBlockMECE = (gdfBlackVoter.pivot_table(index='BLOCKID10',
               .reset_index())          # Reset row index
 #Subset columns
 print("    Removing extraneous columns")
-dfBlockMECE.columns = ['BLOCKID10','MECE1','MECE2','MECE3','MECE4','MECE5']
+#dfBlockMECE.columns = ['BLOCKID10','MECE1','MECE2','MECE3','MECE4','MECE5']
+dfBlockMECE.rename(columns={1.0:'MECE1',2.0:'MECE2',3.0:'MECE3',4.0:'MECE4',5.0:'MECE5'},
+                   inplace=True)
 #Compute total voters in the block
 print("    Computing total election count per voter")
-dfBlockMECE['Total']=dfBlockMECE[['MECE1','MECE2','MECE3','MECE4','MECE5']].sum(axis=1)
+dfBlockMECE['Total']=dfBlockMECE.sum(axis=1)
 #Convert dtypes to integers
-colList = ['MECE1','MECE2','MECE3','MECE4','MECE5','Total']
+colList = dfBlockMECE.columns[1:]
 dfBlockMECE[colList] = dfBlockMECE[colList].astype('int')
 
 #%% 3. PROCESS ORG UNITS (TURFS)
@@ -572,140 +584,30 @@ gdfMajBlackBlocks.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'
 
 #--- Step 3c. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
 #  to be merged with other org units later.
-print(" 3. Keeping majority black blocks with > 50 black households to 'Org1'")
+print(" 3c. Keeping majority black blocks with > 50 black households to 'Org1'")
 gdf_Org1 = gdfMajBlackBlocks.query('BlackHH > 50').reset_index()
 gdf_Org1.drop(['index', 'BLOCKID10','GEOID10'],axis=1,inplace=True)
 gdf_Org1['OrgID'] = gdf_Org1.index + 1
 gdf_Org1['OrgType'] = 'block'
 
-#%% SUBSET MAJORITY BLACK BLOCKS
-
-#%% JOIN MECE DATA TO BLACK BLOCKS
-
-#%% SAVE BLACK BLOCKS WITH > 50 BLACK HH: TURFS_1
-
-#%% EXTRACT BLACK BLOCKS WITH < 50 BLACK HH FOR CLUSTERING
-
-#%% CLUSTER ADJACENT SELECTED BLOCKS -> AGG BLOCKS
-
-#%% DISSOLVE AND UPDATE MECE STATS FOR AGG BLOCKS
-
-#%% REMOVE AGG BLOCKS WITH < 50 BLACK HH 
-        
-#%% SAVE AGG BLOCKS WITH < 100 BLACK HH: TURFS_2
-
-#%% INCREMENTALLY BLOCKS IN AGG BLOCKS WITH > BLACK HH: TURFS_3
-
-#%% MERGE TURF SETS 
-        
 #%%
+#--- Step 3d. Select the majority black blocks with fewer than 50 black HH for clustering
+print("3d. Clustering the remaining blocks...")
+#Isolate blocks to be clustered, i.e., blocks with > 50 BHH
+gdfMajBlackBlocks_LT50 = gdfMajBlackBlocks.query('BlackHH < 50')
 
 
-
-
-
-def tally_block_MECE_scores(gdf_voter):
-    '''Adds count of each MECE scores to each census blocks.
-    
-    Args:
-        gdf_voter(dataframe): geodataframe of voter points. Must have block attributes.
-        
-    Returns:
-        geodataframe of blocks with columns for each MECE catagory and totals.
-    '''
-    #Ensure gdf_voter has the right columns
-    if not ("MECE" in gdf_voter.columns):
-        print(' ERROR: [MECE] not found in supplied dataframe.')
-        return None
-    #Pivot the voter data on MECE scores, tallying counts
-    print("  Pivot data on MECE values")
-    df_MECE = (gdf_voter.pivot_table(index='BLOCKID10',
-                                    columns='MECE',
-                                    aggfunc={'ncid':'count'})
-               .fillna(0)               # Set NaNs to zero
-               .droplevel(0,axis=1)     # Drop multi-index
-               .reset_index())          # Reset row index
-    #Subset columns
-    print("  Removing extraneous columns")
-    df_MECE.columns = ['BLOCKID10','MECE1','MECE2','MECE3','MECE4','MECE5']
-    #Compute total voters in the block
-    print("  Computing total election count per voter")
-    df_MECE['Total']=df_MECE[['MECE1','MECE2','MECE3','MECE4','MECE5']].sum(axis=1)
-    #Convert dtypes to integers
-    colList = ['MECE1','MECE2','MECE3','MECE4','MECE5','Total']
-    df_MECE[colList] = df_MECE[colList].astype('int')
-
-    return df_MECE
-
-
-
-#%% PART 3. ASSIGN VOTER TURF VALUES TO VOTING POINTS
-# Organizational units are areas managed by one or two 'super voters'.
-# These areas should:
-#  (1) have need, defined as having a certian number of black voters and
-#      occur within a block that is majority black, in terms of households
-#  (2) have leaders, defined as having two "MECE 1" voters
-#  (3) be of manageable size, defined as fewer than 100 households
-#
-# The workflow here is:
-# 1. Remove blocks that are not majority black (pctBlack < 50)
-# 2. Join MECE data to the majority black geodataframe
-# 3. Subset blocks that have at least 50 black HH, keep as "Original Block" org units
-# 4. Of those blocks that remain, find which, if clustered, yield at least 50 black HH
-#  4a. Spatially cluster (unary_union) blocks with fewer than 50 black HH 
-#      * The clustering algorithm clusters adjacent blocks until 100 black HH occur within them
-#  4b. Recalculate voter statistics on clustered blocks
-#  4c. Remove clustered blocks still with fewer than 50 black HH
-#  4d. Subset clustered blocks with more than 50 black HH, but fewer than 100; 
-#      Keep these as "Full block cluster" org units
-#  4e. With block clusters with 100 or more black HH, cluster individual blocks
-#      one at a time until 100 black HH are reached, then restart with a new subset
-#      of blocks in the cluster until all blocks have been processed. Keep these
-#      as "Partial block clusters". 
-# 5. Combine the three org unit layers: "Original Block" (step 3), "Full block 
-#    clusters" (step 4d), and "Partial block clusters" (step 4e).
-# 6. Assign random IDs to all org units
-# 7. Compute area (sq mi) of org unit features.
-# 8. Tag voter data with orgunit ID.
-# 9. Add precinct and city information to org unit
-# 10. Tidy and export voter and org unit feature classes
-
-print("PROCESSING ORG UNITS")
-
-#--- Step 1. Select blocks that are majority black and add MECE count data
-print(" 1. Subsetting blocks that are majority black.")
-gdfMajBlack = gdfBlocks.query('PctBlack >= 50')
-
-#--- Step 2. Join MECE data (and tidy up fields)
-print(" 2. Joining block MECE data to selected blocks.")
-gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left').fillna(0)
-# Fix dtypes (Pandas defaults back to floats)
-gdfMajBlack[gdfMajBlack.columns[-6:]] = gdfMajBlack[gdfMajBlack.columns[-6:]] .astype('int')
-gdfMajBlack.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
-                 axis=1,inplace=True)
-
-#--- Step 3. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
-#  to be merged with other org units later.
-print(" 3. Keeping majority black blocks with > 50 black households to 'Org1'")
-gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
-gdf_Org1.drop(['index', 'BLOCKID10','GEOID10'],axis=1,inplace=True)
-gdf_Org1['OrgID'] = gdf_Org1.index + 1
-gdf_Org1['OrgType'] = 'block'
-
-#--- Step 4. Select the majority black blocks with fewer than 50 black HH for clustering
-print(" 4. Clustering the remaining blocks...")
-gdfMajBlack_LT50 = gdfMajBlack.query('BlackHH < 50')
-
-#Step 4a. Cluster adjacent blocks into a single feature and assing a ClusterID
-print("  4a. Finding intitial clusters...")
-gdfClusters = gpd.GeoDataFrame(geometry = list(gdfMajBlack_LT50.unary_union))
+#Step 3d1. Cluster adjacent blocks into a single feature and assing a ClusterID
+print("3d(1). Creating intitial clusters...")
+gdfClusters = gpd.GeoDataFrame(geometry = list(gdfMajBlackBlocks_LT50.unary_union))
 gdfClusters['ClusterID'] = gdfClusters.index
-gdfClusters.crs = gdfMajBlack_LT50.crs #Set the coordinate reference system
+gdfClusters.crs = gdfMajBlackBlocks_LT50.crs #Set the coordinate reference system
 
-#Step 4b. Recalculate population stats for the clusters
-print("  4b. Computing number of black households in new clusters...")
+
+#Step 3d2. Recalculate population stats for the clusters
+print("3d(2). Computing number of black households in new clusters...")
 # -> Done by first spatially joininig the cluster ID to the blocks w/ < 50 Black HH
-gdfMajBlack_LT50_2 = gpd.sjoin(gdfMajBlack_LT50,gdfClusters,
+gdfMajBlack_LT50_2 = gpd.sjoin(gdfMajBlackBlocks_LT50,gdfClusters,
                                how='left',op='within').drop("index_right",axis=1)
 # -> Next we dissolve on the cluster ID computing SUM of the numeric attributes
 #    and updating the percentage fields
@@ -713,19 +615,20 @@ gdfClusters_2 = gdfMajBlack_LT50_2.dissolve(by='ClusterID', aggfunc='sum')
 gdfClusters_2['PctBlack'] = gdfClusters_2['P003003'] / gdfClusters_2['P003001'] * 100
 gdfClusters_2['PctBlack18'] = gdfClusters_2['P010004'] / gdfClusters_2['P010001'] * 100
 
-#Step 4c. Remove block clusters with fewer than 50 BHH; these are impractical
-print("  4c. Removing clusters still with < 50 black households (impractical)...")
+
+#Step 3d3. Remove block clusters with fewer than 50 BHH; these are impractical
+print("3d(3). Removing clusters still with < 50 black households (impractical)...")
 gdfClusters_2 = gdfClusters_2.query('BlackHH >= 50')
 
-#Step 4d. Select clusters with fewer than 100 BHH and save as gdf_Org2, to be merged...
-print("  4d. Keeping new clusters with fewer than 100 black households: 'Org2'")
+#Step 3d4. Select clusters with fewer than 100 BHH and save as gdf_Org2, to be merged...
+print("3d(4). Keeping new clusters with fewer than 100 black households: 'Org2'")
 gdf_Org2 = gdfClusters_2.query('BlackHH <= 100').reset_index()
 gdf_Org2['OrgID'] = gdf_Org1['OrgID'].max() + gdf_Org2.index + 1
 gdf_Org2['OrgType'] = 'block aggregate'
 
-#Step 4e. For clusters that are too big (> 100 Black HH), cluster incrementally
+#Step 3d5. For clusters that are too big (> 100 Black HH), cluster incrementally
 #  so that clusters have up to 100 Black HH. These will be saved as gdf_Org3
-print("  4e. Reclustering clusters with > 100 HH into smaller aggregates...")
+print("3d(5).. Reclustering clusters with > 100 HH into smaller aggregates...")
 #-> Get a list of Cluster IDs for block clusters with more than 100 BHH;
 #   we'll cluster individual blocks with these IDs until BHH >= 100
 clusterIDs = gdfClusters_2.query('BlackHH > 100').index.unique()
@@ -798,6 +701,40 @@ gdf_Org3['PctBlack18'] = gdf_Org3['P010004'] / gdf_Org3['P010001'] * 100
 gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
 gdf_Org3['OrgType'] = 'block aggregate'
 gdf_Org3.drop(['claimed'],axis=1,inplace=True)
+
+
+
+
+#%% PART 3. ASSIGN VOTER TURF VALUES TO VOTING POINTS
+# Organizational units are areas managed by one or two 'super voters'.
+# These areas should:
+#  (1) have need, defined as having a certian number of black voters and
+#      occur within a block that is majority black, in terms of households
+#  (2) have leaders, defined as having two "MECE 1" voters
+#  (3) be of manageable size, defined as fewer than 100 households
+#
+# The workflow here is:
+# 1. Remove blocks that are not majority black (pctBlack < 50)
+# 2. Join MECE data to the majority black geodataframe
+# 3. Subset blocks that have at least 50 black HH, keep as "Original Block" org units
+# 4. Of those blocks that remain, find which, if clustered, yield at least 50 black HH
+#  4a. Spatially cluster (unary_union) blocks with fewer than 50 black HH 
+#      * The clustering algorithm clusters adjacent blocks until 100 black HH occur within them
+#  4b. Recalculate voter statistics on clustered blocks
+#  4c. Remove clustered blocks still with fewer than 50 black HH
+#  4d. Subset clustered blocks with more than 50 black HH, but fewer than 100; 
+#      Keep these as "Full block cluster" org units
+#  4e. With block clusters with 100 or more black HH, cluster individual blocks
+#      one at a time until 100 black HH are reached, then restart with a new subset
+#      of blocks in the cluster until all blocks have been processed. Keep these
+#      as "Partial block clusters". 
+# 5. Combine the three org unit layers: "Original Block" (step 3), "Full block 
+#    clusters" (step 4d), and "Partial block clusters" (step 4e).
+# 6. Assign random IDs to all org units
+# 7. Compute area (sq mi) of org unit features.
+# 8. Tag voter data with orgunit ID.
+# 9. Add precinct and city information to org unit
+# 10. Tidy and export voter and org unit feature classes
 
 #--- Step 5. Merge all three keepers
 print(" 5. Combining Org1, Org2, Org3 into a single feature class")
