@@ -144,7 +144,7 @@ orgunits_shapefile_filename = os.path.join(COUNTY_folder,'{}_orgunits.shp'.forma
 #Clean up
 del i, row, data_url, dfCounties
 
-#%% FETCH STATEWIDE VOTER *REGISTRATION* DATA
+#%% 1a. Fetch statewide voter registration data
 print("1a. Getting statewide voting registration data")
 
 #See if file exists; if so skip the download
@@ -170,7 +170,7 @@ else:
 #Clean up
 del file_list
       
-#%% FETCH STATEWIDE VOTER *HISTORY* DATA
+#%% 1b. Fetch statewide votger history data
 print("1b. Getting statewide voting history data")
 
 #See if file exists; if so skip the download
@@ -191,12 +191,12 @@ else:
     state_voter_history_file = glob.glob(NCSBE_folder+'/**/ncvhis_Statewide.txt',recursive=True)[0]
     print("   Voter history data stored as\n  [{}]".format(state_voter_history_file))
     #Clean up 
-    del r,z
+    del fileURL, r, z
 
 #Clean up
 del file_list
 
-#%% FETCH STATEWIDE ADDRESS FILE
+#%% 1c. Fetch statewide address data
 print("1c. Getting statewide voting address data")
 
 #See if file exists
@@ -216,7 +216,7 @@ else: #Otherwise retrieve the file from the NC SBE server
     state_address_file = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)[0]
     print("   Statewide data stored as\n  [{}]".format(state_address_file))
     #Clean up 
-    del r,z
+    del fileURL, r,z
 
 #Clean up
 del file_list
@@ -224,7 +224,7 @@ del file_list
 #Get associated metadata file
 state_address_metadata = glob.glob(NCSBE_folder+'/**/address_points_data_format.txt',recursive=True)[0] 
 
-#%% SUBSET COUNTY ADDRESSES
+#%% 1d. Subset voting address file for county
 print("1d. Subsetting voting address data for {} county".format(county_name.title()))
 
 #See if the county file already exists, if so create and return a dataframe
@@ -235,31 +235,36 @@ if len(file_list) > 0:
     dfCountyAddresses = pd.read_csv(county_address_file,dtype='str')
     dfCountyAddresses['latitude'] = dfCountyAddresses['latitude'].astype('float')
     dfCountyAddresses['longitude'] = dfCountyAddresses['longitude'].astype('float')
-else: 
-    print("  Building country address file...")
-
-    #Generate a list of columns from the metadata file 
-    print("...Generating statewide address dataframe...")
-    with open(state_address_metadata,'r') as colFile:
-        theText = colFile.readlines()
-        columns = [theLine.split("\n")[0].split()[0] for theLine in theText[7:]]
-    #Read in the data, using the metadata to supply column names
-    dfStateAddresses = pd.read_csv(state_address_file,sep='\t',dtype='str',
-                                   header=None,index_col=0,names = columns)
-    dfStateAddresses['latitude'] = dfStateAddresses['latitude'].astype('float')
-    dfStateAddresses['longitude'] = dfStateAddresses['longitude'].astype('float')
-    print("   ...{} statewide records loaded".format(dfStateAddresses.shape[0]))
-    #Extract Wake Co addresses and save
+    
+else: #Subset county data from state data
+    print("    Building country address file...")
+    #See whether state data dataframe is in memory
+    if not 'dfStateAddresses' in dir():
+        #Otherwise read in the state data, using the metadata to supply column names
+        print("    ...Generating statewide address dataframe...")
+        #Generate a list of columns from the metadata file 
+        with open(state_address_metadata,'r') as colFile:
+            theText = colFile.readlines()
+            columns = [theLine.split("\n")[0].split()[0] for theLine in theText[7:]]
+        dfStateAddresses = pd.read_csv(state_address_file,sep='\t',dtype='str',
+                                       header=None,index_col=0,names = columns)
+        dfStateAddresses['latitude'] = dfStateAddresses['latitude'].astype('float')
+        dfStateAddresses['longitude'] = dfStateAddresses['longitude'].astype('float')
+        print("   ...{} statewide records loaded".format(dfStateAddresses.shape[0]))
+        #Clean up
+        del columns, theText
+        
+    #Extract county addresses and save
     dfCountyAddresses = dfStateAddresses[dfStateAddresses.county == county_name]
     print("   ...{} county records extracted".format(dfCountyAddresses.shape[0]))
     #Save to a file
     county_address_file = state_address_file.replace('sboe.txt','{}.csv'.format(county_name))
     dfCountyAddresses.to_csv(county_address_file,index=False)
-    print(" County address file created:\n  [{}]".format(county_address_file))
+    print("    County address file created:\n  [{}]".format(county_address_file))
 
 #Clean up
 del file_list
-#%% COMPUTE COUNTY MECE SCORES
+#%% 1d. Compute county MECE scores
 print("1d. Computing MECE scores for {} voters".format(county_name))  
 #Read the data into a dataframe (if not done already)
 if not 'dfStateHistory' in (dir()):
@@ -505,6 +510,27 @@ if voter_shapefile_name:
         outTxt.write('Census block data appended to points.\n\n')
         outTxt.write('File created on {}'.format(current_date))
 #%% EXTRACT VOTERS IN MAJORITY BLACK BLOCKS
+print("PROCESSING ORG UNITS")
+
+#--- Step 3a. Select blocks that are majority black and add MECE count data
+print(" 1. Subsetting blocks that are majority black.")
+gdfMajBlack = gdfCoBlocks.query('PctBlack >= 50')
+
+#--- Step 3b. Join MECE data (and tidy up fields)
+print(" 2. Joining block MECE data to selected blocks.")
+gdfMajBlack = pd.merge(gdfMajBlack,dfMECE,on='BLOCKID10',how='left').fillna(0)
+# Fix dtypes (Pandas defaults back to floats)
+gdfMajBlack[gdfMajBlack.columns[-6:]] = gdfMajBlack[gdfMajBlack.columns[-6:]] .astype('int')
+gdfMajBlack.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
+                 axis=1,inplace=True)
+
+#--- Step 3c. Subset majority black blocks with > 50 black HH and save as gdf_Org1 
+#  to be merged with other org units later.
+print(" 3. Keeping majority black blocks with > 50 black households to 'Org1'")
+gdf_Org1 = gdfMajBlack.query('BlackHH > 50').reset_index()
+gdf_Org1.drop(['index', 'BLOCKID10','GEOID10'],axis=1,inplace=True)
+gdf_Org1['OrgID'] = gdf_Org1.index + 1
+gdf_Org1['OrgType'] = 'block'
 
 #%% SUBSET MAJORITY BLACK BLOCKS
 
@@ -596,14 +622,7 @@ def tally_block_MECE_scores(gdf_voter):
     return df_MECE
 
 
-#%% PART 2. CENSUS DATA
 
-#Subset voter points
-print('2d. Extracting black voters in majority black blocks')
-gdfVoter_subset = subset_voter_points(gdfVoter,'')#subset_voter_shapefile_name)
-
-#Compute MECE counts by block
-dfMECE = tally_block_MECE_scores(gdfVoter_subset)
 #%% PART 3. ASSIGN VOTER TURF VALUES TO VOTING POINTS
 # Organizational units are areas managed by one or two 'super voters'.
 # These areas should:
