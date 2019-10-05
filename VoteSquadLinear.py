@@ -159,7 +159,7 @@ if len(file_list) > 0:
 #Otherwise download
 else:
     #Fetch and unzip the file
-    print("   Retrieving registration file from NC SBE server [Be patient...]")
+    print("    Retrieving registration file from NC SBE server [Be patient...]")
     fileURL = 'http://dl.ncsbe.gov/data/ncvoter_Statewide.zip'
     r = requests.get(fileURL)
     z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -185,7 +185,7 @@ if len(file_list) > 0:
 #Otherwise download
 else:
     #Fetch and unzip the file
-    print("   Retrieving address file from NC SBE server [Be patient...]")
+    print("    Retrieving address file from NC SBE server [Be patient...]")
     fileURL = 'http://dl.ncsbe.gov/data/ncvhis_Statewide.zip'
     r = requests.get(fileURL)
     z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -210,7 +210,7 @@ if len(file_list) > 0:
     print("   File already downloaded")
 
 else: #Otherwise retrieve the file from the NC SBE server
-    print("   Retrieving address file from NC SBE server [Be patient...]")
+    print("    Retrieving address file from NC SBE server [Be patient...]")
     fileURL = 'https://s3.amazonaws.com/dl.ncsbe.gov/ShapeFiles/address_points_sboe.zip'
     r = requests.get(fileURL)
     z = zipfile.ZipFile(io.BytesIO(r.content))
@@ -235,7 +235,7 @@ print("1d. Subsetting voting address data for {} county".format(county_name.titl
 file_list = glob.glob(NCSBE_folder+'/**/address_points_{}.csv'.format(county_name),recursive=True)
 if len(file_list) > 0:
     county_address_file = file_list[0]
-    print("   Found county address file:\n  [{}]".format(county_address_file))
+    print("   Found county address file:\n   [{}]".format(county_address_file))
     dfCountyAddresses = pd.read_csv(county_address_file,dtype='str')
     dfCountyAddresses['latitude'] = dfCountyAddresses['latitude'].astype('float')
     dfCountyAddresses['longitude'] = dfCountyAddresses['longitude'].astype('float')
@@ -278,16 +278,16 @@ if not 'dfStateHistory' in (dir()):
                                  usecols=('county_desc','election_lbl','ncid'))
 
 #Subset records for the county
-print("   Subseting county voting history records")
+print("    Subseting county voting history records")
 dfCountyHistory = dfStateHistory[dfStateHistory['county_desc']==county_name]
 
 #Subset records for the elections of interest
-print("   Subsetting election data")
+print("    Subsetting election data")
 elections = ('10/10/2017','11/07/2017','11/06/2018','11/08/2016','11/06/2012')
 dfSubset = dfCountyHistory.loc[dfCountyHistory.election_lbl.isin(elections),:]
 
 #Pivot on these elections
-print("   Determining MECE scores",end="")
+print("    Determining MECE scores",end="")
 dfVoterMECE = pd.pivot_table(dfSubset,
                              columns = 'election_lbl',
                              index = 'ncid',
@@ -413,9 +413,9 @@ print("2a. Extracting state block features into a geodataframe")
 
 #See if the data have already been pulled; if so, read into dataframe and return
 if os.path.exists(fnBlockShapefile):
-    print("  Data already downloaded\n  [{}]".format(fnBlockShapefile))
-    print("  ...reading data into a dataframe")
-    gdfBlocks = gpd.read_file(fnBlockShapefile)
+    print("    Data already downloaded\n    [{}]".format(fnBlockShapefile))
+    print("    ...reading data into a dataframe")
+    gdfCoBlocks = gpd.read_file(fnBlockShapefile)
 
 #Otherwise download and create the file
 else:
@@ -501,7 +501,7 @@ if fnVoterShapefile:
         print("    Saving geodataframe as shapefile. [Be patient...]")
         gdfVoter.to_file(fnVoterShapefile,format='shapefile')
     else: #Otherwise, save to csv
-        print("  Saving geodataframe as CSV file...")
+        print("   Saving geodataframe as CSV file...")
         gdfVoter.to_csv(fnVoterShapefile,index_label="OID")
     
     #Write metadata  to .txt file
@@ -578,7 +578,7 @@ gdfMajBlackBlocks = gdfCoBlocks.query('PctBlack >= 50')
 print(" 3b. Joining block MECE data to selected blocks.")
 gdfMajBlackBlocks = pd.merge(gdfMajBlackBlocks,dfBlockMECE,on='BLOCKID10',how='left').fillna(0)
 # Fix dtypes (Pandas defaults back to floats)
-gdfMajBlackBlocks[gdfMajBlackBlocks.columns[-6:]] = gdfMajBlackBlocks[gdfMajBlackBlocks.columns[-6:]] .astype('int')
+gdfMajBlackBlocks[gdfMajBlackBlocks.columns[-6:]] = gdfMajBlackBlocks[gdfMajBlackBlocks.columns[-6:]]# .astype('int')
 gdfMajBlackBlocks.drop(['STATEFP10','COUNTYFP10','TRACTCE10','BLOCKCE','PARTFLG'],
                  axis=1,inplace=True)
 
