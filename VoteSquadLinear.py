@@ -74,7 +74,64 @@ dfCounties = (pd.read_csv(data_url,
 #Create column of just county name (drop " county")
 dfCounties['cname'] = dfCounties['cnamelong'].str.split(pat=' ',expand=True)[0] 
 
-#Iterate for county
+#%% FUNCTIONS
+def msg(note=''):
+    print(note)
+    with open('log.txt','a') as logFile: 
+        logFile.write(note+'\n')
+    return
+
+def _get_block_attributes(st_fips,co_fips,api_key):
+    '''Retrieves race composition data using the Census API
+    
+    Description: Pulls the following block level data from the 2010 SF1 file:
+        P003001 - Total population 
+        P003003 - Total Black or African American population
+        P010001 - Total population 18 years and older
+        P010004 - Total Black/African-American population 18 years or older
+    Then compute pct Black and pct Black (18+) columns along with 
+    
+    Args:
+        st_fips(str): State FIPS code (e.g. '37')
+        co_fips(str): County FIPS code (e.g. '183')
+        output_csv(str): Filename to save data
+        api_key(str): Census API key
+        
+    Returns:
+        geodataframe of census blocks for the county
+    '''
+   #Census API call to get the data for the proivded state/county 
+    theURL = 'https://api.census.gov/data/2010/dec/sf1'
+    params = {'get':'P003001,P003003,P010001,P010004',
+              'for':'block:*',
+              'in':'state:{}%county:{}'.format(st_fips,co_fips),
+              'key':api_key
+         }
+    #Send the request and convert the response to JSON format
+    print("     ...downloading data from {}".format(theURL))
+    response = requests.get(theURL,params) 
+    response_json = response.json()
+    #Convert JSON to pandas dataframe
+    print("     ...cleaning data...")
+    dfData = pd.DataFrame(response_json[1:],columns=response_json[0])
+    #Convert block data columns to numeric
+    floatColumns = ['P003001','P003003','P010001','P010004']
+    dfData[floatColumns] = dfData[floatColumns].apply(pd.to_numeric)
+    #Combine columns into single GEOID10 attribute
+    dfData['GEOID10'] = dfData.state+dfData.county+dfData.tract+dfData.block
+    #Compute percentages
+    dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
+    dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
+
+    #Set null values to zero
+    dfData.fillna(0,inplace=True)
+    #Remove GEOID component columns
+    dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
+
+    #Return the dataframe
+    return dfData
+    
+#%% Iterate for county
 state_fips = '37'
 for i,row in dfCounties.iterrows():
     county_fips = row['county']
@@ -91,62 +148,11 @@ for i,row in dfCounties.iterrows():
         continue
     
     #Set the output filenames
-    fnVoterShapefile = os.path.join(COUNTY_folder,'{}_voter_points.shp'.format(county_name))
+    fnVoterShapefile = ""#os.path.join(COUNTY_folder,'{}_voter_points.shp'.format(county_name))
     fnVoterShapefileSubset = os.path.join(COUNTY_folder,'{}_voter_subset_points.shp'.format(county_name))
     fnBlockShapefile = os.path.join(COUNTY_folder,'{}_blocks.shp'.format(county_name))
     fnOrgunitsShapefile = os.path.join(COUNTY_folder,'{}_orgunits.shp'.format(county_name))
     
-    
-#%% FUNCTIONS
-    def _get_block_attributes(st_fips,co_fips,api_key):
-        '''Retrieves race composition data using the Census API
-        
-        Description: Pulls the following block level data from the 2010 SF1 file:
-            P003001 - Total population 
-            P003003 - Total Black or African American population
-            P010001 - Total population 18 years and older
-            P010004 - Total Black/African-American population 18 years or older
-        Then compute pct Black and pct Black (18+) columns along with 
-        
-        Args:
-            st_fips(str): State FIPS code (e.g. '37')
-            co_fips(str): County FIPS code (e.g. '183')
-            output_csv(str): Filename to save data
-            api_key(str): Census API key
-            
-        Returns:
-            geodataframe of census blocks for the county
-        '''
-       #Census API call to get the data for the proivded state/county 
-        theURL = 'https://api.census.gov/data/2010/dec/sf1'
-        params = {'get':'P003001,P003003,P010001,P010004',
-                  'for':'block:*',
-                  'in':'state:{}%county:{}'.format(st_fips,co_fips),
-                  'key':api_key
-             }
-        #Send the request and convert the response to JSON format
-        print("     ...downloading data from {}".format(theURL))
-        response = requests.get(theURL,params) 
-        response_json = response.json()
-        #Convert JSON to pandas dataframe
-        print("     ...cleaning data...")
-        dfData = pd.DataFrame(response_json[1:],columns=response_json[0])
-        #Convert block data columns to numeric
-        floatColumns = ['P003001','P003003','P010001','P010004']
-        dfData[floatColumns] = dfData[floatColumns].apply(pd.to_numeric)
-        #Combine columns into single GEOID10 attribute
-        dfData['GEOID10'] = dfData.state+dfData.county+dfData.tract+dfData.block
-        #Compute percentages
-        dfData['PctBlack'] = dfData.P003003 / dfData.P003001 * 100
-        dfData['PctBlack18'] = dfData.P010004 / dfData.P010001 * 100
-    
-        #Set null values to zero
-        dfData.fillna(0,inplace=True)
-        #Remove GEOID component columns
-        dfData.drop(['state','county','tract','block'],axis='columns',inplace=True)
-    
-        #Return the dataframe
-        return dfData
     
 #%% 1a. Fetch statewide voter registration data
     print("1a. Getting statewide voting registration data")
@@ -519,6 +525,9 @@ for i,row in dfCounties.iterrows():
             outTxt.write('Subset of voter points\n'.format(county_name))
             outTxt.write('Voting points for only black voter in majority black blocks\n\n')
             outTxt.write('File created on {}'.format(current_date))
+    #Clean up
+    del mask_Voter, mask_Block
+    
 #%% 2d. Tally Block MECE scores and append to Block features
     print('2d. Tally Block MECE scores')
     #Ensure gdfVoter has the right columns
@@ -544,6 +553,8 @@ for i,row in dfCounties.iterrows():
     #Convert dtypes to integers
     colList = dfBlockMECE.columns[1:]
     dfBlockMECE[colList] = dfBlockMECE[colList].astype('int')
+    #Clean up
+    del colList
     
 #%% 3. PROCESS ORG UNITS (TURFS)
     print("STEP 3 - PROCESSING ORG UNITS (TURFS)")
@@ -554,7 +565,7 @@ for i,row in dfCounties.iterrows():
     print(" 3a. Subsetting blocks that are majority black.")
     gdfMajBlackBlocks = gdfCoBlocks.query('PctBlack >= 50')
     if gdfMajBlackBlocks.shape[0] == 0:
-        print("No majority black blocks in {} county".format(county_name.title()))
+        msg("No majority black blocks in {} county".format(county_name.title()))
         continue
     
 #--- Step 3b. Join MECE data (and tidy up fields)
@@ -575,12 +586,12 @@ for i,row in dfCounties.iterrows():
     if gdf_Org1.shape[0] > 0:
         gdfTurfs.append(gdf_Org1)
     else:
-        print("No Type 1 turfs!!")
+        msg("No Type 1 turfs in {} county".format(county_name.title()))
     
 #--- Step 3d. Select the majority black blocks with fewer than 50 black HH for clustering
     print("3d. Clustering the remaining blocks...")
     #Isolate blocks to be clustered, i.e., blocks with > 50 BHH
-    gdfMajBlackBlocks_LT50 = gdfMajBlackBlocks.query('BlackHH < 50')
+    gdfMajBlackBlocks_LT50 = gdfMajBlackBlocks.query('BlackHH <= 50')
     
     
 #Step 3d1. Cluster adjacent blocks into a single feature and assing a ClusterID
@@ -614,7 +625,7 @@ for i,row in dfCounties.iterrows():
     if gdf_Org2.shape[0] > 0:
         gdfTurfs.append(gdf_Org2)
     else:
-        print("No Type 2 turfs!!")
+        msg("No Type 2 turfs in {} county".format(county_name.title()))
     
 #Step 3d5. For clusters that are too big (> 100 Black HH), cluster incrementally
     #  so that clusters have up to 100 Black HH. These will be saved as gdf_Org3
@@ -625,10 +636,9 @@ for i,row in dfCounties.iterrows():
     
     #Proceed only if clusters were found
     if clusterIDs.shape[0] == 0:
-        print("No Type 3 turfs!!")
-    else:
-    
-        #Iterate through each clusterID
+        msg("No Type 3 turfs in {} county".format(county_name.title()))
+        
+    else: #Iterate through each clusterID
         gdfs = []
         for clusterID in clusterIDs:
             #Get all the blocks in the selected cluster
@@ -696,12 +706,22 @@ for i,row in dfCounties.iterrows():
         gdf_Org3['OrgID'] = gdf_Org2['OrgID'].max() + gdf_Org3.index + 1
         gdf_Org3['OrgType'] = 'block aggregate'
         gdf_Org3.drop(['claimed'],axis=1,inplace=True)
-        gdfTurfs.append(gdf_Org3)
-    
+        #Write to list unless no features returned
+        if gdf_Org3.shape[0] > 0:
+            gdfTurfs.append(gdf_Org3)
+        else:
+            msg("No Type 3 turfs in {} county".format(county_name.title()))
+
     
 #--- Step 3e. Merge all three keepers
     print("3e. Combining Org1, Org2, Org3 into a single feature class")
-    gdfAllOrgs = pd.concat((gdfTurfs),axis=0,sort=True)
+    if len(gdfTurfs) == 0:
+        msg("No turfs for {} county!!".format(county_name))
+        continue
+    else:
+        gdfAllOrgs = pd.concat((gdfTurfs),axis=0,sort=True)
+        #Clean up
+        for gdfTurf in gdfTurfs: del gdfTurf
     
 #--- Step 3f. Assign random IDs 
     print("3f. Assigning random IDs for org units")
@@ -812,7 +832,7 @@ for i,row in dfCounties.iterrows():
         ''')
     print('    Org units saved to {}'.format(fnOrgunitsShapefile))
     
-#--- 3k. Tidy and export voter features
+#--- Step 3k. Tidy and export voter features
     print('3k. Tiding and exporting voter features...')
     ## Rename columns:
     gdfVoter_org_copy = gdfVoter_org.copy(deep=True)
