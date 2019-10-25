@@ -51,6 +51,7 @@ speedups.enable()
 import os
 import requests, zipfile, io, glob
 from datetime import datetime
+from pathlib import Path
 
 #%% FUNCTIONS
 def get_state_voter_registation_file(NCSBE_folder,overwrite=False):
@@ -79,7 +80,7 @@ def get_state_voter_registation_file(NCSBE_folder,overwrite=False):
         print("   Unpacking data...")
         z.extractall(NCSBE_folder)
         #Get the file path
-        state_voter_reg_file = glob.glob(NCSBE_folder+'/**/ncvoter_Statewide.txt',recursive=True)[0]
+        state_voter_reg_file = glob.glob(str(NCSBE_folder)+'/**/ncvoter_Statewide.txt',recursive=True)[0]
         print("   Statewide data stored as\n  [{}]".format(state_voter_reg_file))
         return(state_voter_reg_file)
 
@@ -95,20 +96,21 @@ def get_state_voter_history_file(NCSBE_folder,overwrite=False):
         filename of state voter history file
     '''
     state_voter_history_file = os.path.join(NCSBE_folder,'ncvhis_Statewide.txt')
+
     if (os.path.exists(state_voter_history_file) and not(overwrite)):
         print(" [{}] file already exists...".format(state_voter_history_file))
         return state_voter_history_file
     else:
         #Fetch and unzip the file
         print(" Retrieving address file from NC SBE server [Be patient...]")
-        return 
+        #return 
         fileURL = 'http://dl.ncsbe.gov/data/ncvhis_Statewide.zip'
         r = requests.get(fileURL)
         z = zipfile.ZipFile(io.BytesIO(r.content))
         print("   Unpacking data...")
         z.extractall(NCSBE_folder)
         #Get the file path
-        state_voter_history_file = glob.glob(NCSBE_folder+'/**/ncvhis_Statewide.txt',recursive=True)[0]
+        state_voter_history_file = glob.glob(str(NCSBE_folder)+'/**/ncvhis_Statewide.txt',recursive=True)[0]
         print("   Statewide data stored as\n  [{}]".format(state_voter_history_file))
         return(state_voter_history_file)
 
@@ -190,7 +192,7 @@ def get_state_address_file(NCSBE_folder):
     '''
     import requests, zipfile, io, glob
     #First, see if the state file has already been retrieved, return if so
-    file_list = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)
+    file_list = glob.glob(str(NCSBE_folder)+'/**/address_points_sboe.txt',recursive=True)
     if len(file_list) > 0:
         state_address_file = file_list[0]
         print(" Statewide address file found:\n  [{}]".format(state_address_file))
@@ -202,7 +204,7 @@ def get_state_address_file(NCSBE_folder):
         print("   Unpacking data...")
         z.extractall(NCSBE_folder)
         #Get the file path
-        state_address_file = glob.glob(NCSBE_folder+'/**/address_points_sboe.txt',recursive=True)[0]
+        state_address_file = glob.glob(str(NCSBE_folder)+'/**/address_points_sboe.txt',recursive=True)[0]
         print("   Statewide data stored as\n  [{}]".format(state_address_file))
     return(state_address_file)
 
@@ -222,7 +224,7 @@ def get_county_address_file(county_name, NCSBE_folder):
     county_name = county_name.upper()
     
     #See if the county file already exists, if so create and return a dataframe
-    file_list = glob.glob(NCSBE_folder+'/**/address_points_{}.csv'.format(county_name),recursive=True)
+    file_list = glob.glob(str(NCSBE_folder)+'/**/address_points_{}.csv'.format(county_name),recursive=True)
     if len(file_list) > 0:
         county_address_file = file_list[0]
         print(" Found county address file:\n  [{}]".format(county_address_file))
@@ -231,9 +233,11 @@ def get_county_address_file(county_name, NCSBE_folder):
         print(" Building country address file...")
     
     #Get the state address file (this will pull it, if needed)
+    print(str(NCSBE_folder))
+    print('before function call')
     state_address_file = get_state_address_file(NCSBE_folder)
     #Get the associated metadata file (containing counties)
-    state_address_metadata = glob.glob(NCSBE_folder+'/**/address_points_data_format.txt',recursive=True)[0] 
+    state_address_metadata = glob.glob(str(NCSBE_folder)+'/**/address_points_data_format.txt',recursive=True)[0] 
     
     #Generate a list of columns from the metadata file 
     print("...Generating statewide address dataframe...")
@@ -616,8 +620,11 @@ county_name = 'WAKE'
 NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
 CENSUS_folder = '.\\data\\Census'  #Folder containing Census data
 
+NCSBE_folder = Path('data/NCSBE')     #Folder containing NC SBE data
+CENSUS_folder = Path('data/Census')  #Folder containing Census data
+
 #Create a folder to hold county data
-COUNTY_folder = '.\\data\\{}'.format(county_name)
+COUNTY_folder = Path('data/{}'.format(county_name))
 if not(os.path.exists(COUNTY_folder)):
     os.mkdir(COUNTY_folder)
 
@@ -641,7 +648,7 @@ dfVoterMECE = get_county_voter_MECE_data(state_voter_history_file,county_name)
 
 #Get the file of NC SBE address s for the state (if needed) and then the county subset
 print("1d. Getting address data for {} county".format(county_name))
-county_address_file = get_county_address_file(county_name,NCSBE_folder)
+county_address_file = get_county_address_file(county_name, NCSBE_folder)
 
 #Retrieve voter features
 print("1e. Converting voting data to spatial features")
