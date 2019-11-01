@@ -9,6 +9,16 @@ Analysis of NC census and elections data to identify areas of low minority voter
 * Python 3.6.6
 * Jupyter | Geopandas | [GeoPy](https://github.com/geopy/geopy) | requests | spyder | [folium](http://python-visualization.github.io/folium/) 
 
+#### Local Instalation
+
+* Clone the repo `$ git clone https://github.com/14-cities/WakeVoter.git`
+* Install requirements with `$ pip install -r reqs.txt` (**NOTE:** it is heavily encouraged to do this in a virtual environment)
+* Request an (API key)[https://api.census.gov/data/key_signup.html] from  the US Census
+* When the key arrives in an email, copy and paste it into a file called `APIkey.txt` at the root of WakeVoter
+* To run the applicaiton, start a new Python shell session and import the `VoteSqaud.py` file
+  * `$ python`
+  * `>>> import VoteSquad.py`
+
 
 
 ## Data
