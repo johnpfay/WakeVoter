@@ -617,10 +617,7 @@ county_fips  = '183'
 county_name = 'WAKE'
 
 #Set structure variables
-NCSBE_folder ='.\\data\\NCSBE'     #Folder containing NC SBE data
-CENSUS_folder = '.\\data\\Census'  #Folder containing Census data
-
-NCSBE_folder = Path('data/NCSBE')     #Folder containing NC SBE data
+NCSBE_folder = Path('data/NCSBE')    #Folder containing NC SBE data
 CENSUS_folder = Path('data/Census')  #Folder containing Census data
 
 #Create a folder to hold county data
