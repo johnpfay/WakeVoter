@@ -20,6 +20,11 @@ Analysis of NC census and elections data to identify areas of low minority voter
   * `>>> import VoteSquad.py`
 
 
+#### OS Specific troubleshooting
+
+* On **Mac OS X**, if you get the error `OSError: Could not find libspatialindex_c library file` you may need to run `$ brew install spatialindex` to get rtree working properly. See this [GitHub issue](https://github.com/gboeing/osmnx/issues/45)
+
+
 
 ## Data
 
