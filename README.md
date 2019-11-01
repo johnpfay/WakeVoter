@@ -9,7 +9,7 @@ Analysis of NC census and elections data to identify areas of low minority voter
 * Python 3.6.6
 * Jupyter | Geopandas | [GeoPy](https://github.com/geopy/geopy) | requests | spyder | [folium](http://python-visualization.github.io/folium/) 
 
-#### Local Instalation
+#### Local Installation
 
 * Clone the repo `$ git clone https://github.com/14-cities/WakeVoter.git`
 * Install requirements with `$ pip install -r reqs.txt` (**NOTE:** it is heavily encouraged to do this in a virtual environment)
@@ -24,6 +24,7 @@ Analysis of NC census and elections data to identify areas of low minority voter
 
 * On **Mac OS X**, if you get the error `OSError: Could not find libspatialindex_c library file` you may need to run `$ brew install spatialindex` to get rtree working properly. See this [GitHub issue](https://github.com/gboeing/osmnx/issues/45)
 
+* On **Ubuntu 18.04**, if you get the missing libspatial error, `$ apt install libspatialindex-c4v5 libspatialindex-dev libspatialindex4v5` or just `apt install python3-rtree` and it will pull those in as dependencies.
 
 
 ## Data
