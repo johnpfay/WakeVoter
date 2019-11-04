@@ -287,8 +287,10 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
         return(gdfBlocks)
         
     #Othersiwse read in all the voter registration data
+    #load 20,000 rows at a time into an iterator to save memory
     print("  Reading in the voter registration data file...")
-    dfAll = pd.read_csv(data_file,
+
+    dataIterator = pd.read_csv(data_file,
                     usecols=['county_desc','voter_reg_num','res_street_address',
                              'res_city_desc','state_cd','zip_code','precinct_abbrv',
                              'race_code','ethnic_code','gender_code','ncid',
@@ -296,16 +298,17 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
                              'full_phone_number','birth_age','voter_reg_num',
                              'last_name','first_name','middle_name','precinct_abbrv'],
                     sep='\t',
+                    chunksize=20000,
                     encoding = "ISO-8859-1",low_memory=False)
-    
-    #Select records for the provided county name - into a new dataframe
-    print("  Selecting records for {} county...".format(county_name),end='')
-    dfCounty = dfAll[dfAll['county_desc'] == county_name.upper()].reindex()
+
+    #Filter the selected county and then add it to the dfCounty DataFrame
+    print("  Selecting records for {} county...".format(county_name))
+    dfCounty = pd.DataFrame()
+    for chunk in dataIterator:
+        chunk = chunk[chunk['county_desc'] == county_name.upper()]
+        dfCounty = pd.concat([dfCounty,chunk])
     print(" {} records selected".format(dfCounty.shape[0]))
-    
-    #Remove dfAll to free memory
-    del(dfAll)
-    
+
     #Drop the county name from the table and set the voter registration # as index
     print("  Tidying data...")
     dfCounty.drop('county_desc',axis=1,inplace=True)
