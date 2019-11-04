@@ -285,11 +285,34 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
         print("  Creating geodata dataframe from {}\n  [Be patient...]".format(out_shapefile))
         gdfBlocks = gpd.read_file(out_shapefile)
         return(gdfBlocks)
-        
+
     #Othersiwse read in all the voter registration data
     #load 20,000 rows at a time into an iterator to save memory
     print("  Reading in the voter registration data file...")
 
+    # Expected datatypes for each column
+    dtype = {
+        'county_desc': np.object,
+        'voter_reg_num': np.int64,
+        'last_name': np.object,
+        'first_name': np.object,
+        'middle_name': np.object,
+        'res_street_address': np.object,
+        'res_city_desc': np.object,
+        'state_cd': np.object,
+        'zip_code': np.float64,
+        'mail_addr1': np.object,
+        'mail_city': np.object,
+        'mail_state': np.object,
+        'mail_zipcode': np.object,
+        'full_phone_number': np.object,
+        'race_code': np.object,
+        'ethnic_code': np.object,
+        'gender_code': np.object,
+        'birth_age': np.int64,
+        'precinct_abbrv': np.object,
+        'ncid': np.object
+    }
     dataIterator = pd.read_csv(data_file,
                     usecols=['county_desc','voter_reg_num','res_street_address',
                              'res_city_desc','state_cd','zip_code','precinct_abbrv',
@@ -299,7 +322,8 @@ def get_voter_data(data_file, address_file, county_name, dfMECE, out_shapefile, 
                              'last_name','first_name','middle_name','precinct_abbrv'],
                     sep='\t',
                     chunksize=20000,
-                    encoding = "ISO-8859-1",low_memory=False)
+                    dtype=dtype,
+                    encoding = "ISO-8859-1",low_memory=True)
 
     #Filter the selected county and then add it to the dfCounty DataFrame
     print("  Selecting records for {} county...".format(county_name))
