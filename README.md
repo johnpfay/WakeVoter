@@ -98,8 +98,8 @@ Address points
 
 * Spatially join voting registration data with census blocks & precinct information
 * Compile list of super voters within each block (voters in all elections)
-* Compile list of slacker voters within each block
-* Identify contiguous blocks, within precincts, and tally slacker voters 
-* Assign super voters for each 100 slacker voters in contiguous blocks.
+* Compile list of low propensity voters within each block
+* Identify contiguous blocks, within precincts, and tally low propensity voters 
+* Assign super voters for each 100 low propensity voters in contiguous blocks.
 
 ---
